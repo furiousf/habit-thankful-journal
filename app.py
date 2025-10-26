@@ -2,53 +2,80 @@ import streamlit as st
 import sqlite3
 from datetime import datetime
 
-# --- database setup ---
+# --- Database setup ---
 conn = sqlite3.connect("journal.db", check_same_thread=False)
 c = conn.cursor()
 c.execute("""
 CREATE TABLE IF NOT EXISTS entries (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     date TEXT,
-    type TEXT,
     mood TEXT,
-    content TEXT
+    thank1_who TEXT,
+    thank1_for TEXT,
+    thank2_who TEXT,
+    thank2_for TEXT,
+    thank3_who TEXT,
+    thank3_for TEXT,
+    thoughts TEXT
 )
 """)
 conn.commit()
 
-# --- page config ---
+# --- Page layout ---
 st.set_page_config(page_title="Habit Thankful Journal", page_icon="🪶", layout="centered")
 st.title("🪶 Habit Thankful Journal")
 
-menu = ["Add Entry", "View Entries"]
-choice = st.sidebar.radio("Menu", menu)
+st.write("Take a moment to slow down and reflect ✨")
 
-if choice == "Add Entry":
-    st.subheader("✍️ Write a New Entry")
-    entry_type = st.selectbox("Entry Type", ["Gratitude", "Journal"])
-    mood = st.selectbox("Mood", ["😊 Happy", "😐 Neutral", "😞 Sad", "🤩 Excited", "😔 Tired"])
-    content = st.text_area("Write your thoughts here...")
+# --- Form layout ---
+mood = st.selectbox("Mood", ["😊 Happy", "😐 Neutral", "😞 Sad", "🤩 Excited", "😔 Tired"])
 
-    if st.button("Save Entry"):
-        c.execute("INSERT INTO entries (date, type, mood, content) VALUES (?, ?, ?, ?)",
-                  (datetime.now().strftime("%Y-%m-%d %H:%M"), entry_type, mood, content))
-        conn.commit()
-        st.success("✅ Saved successfully!")
+thank1_who = st.text_input("I thank (1):", placeholder="Who are you thankful for?")
+thank1_for = st.text_input("for (1):", placeholder="What did they do?")
 
-elif choice == "View Entries":
-    st.subheader("📖 Past Entries")
-    filter_type = st.radio("Filter by", ["All", "Gratitude", "Journal"])
-    if filter_type == "All":
-        rows = c.execute("SELECT * FROM entries ORDER BY date DESC").fetchall()
-    else:
-        rows = c.execute("SELECT * FROM entries WHERE type=? ORDER BY date DESC", (filter_type,)).fetchall()
+thank2_who = st.text_input("I thank (2):", placeholder="Who else?")
+thank2_for = st.text_input("for (2):", placeholder="What did they do?")
 
-    for r in rows:
-        st.markdown(f"""
-        **📅 {r[1]}**  
-        🧠 *{r[2]}* | {r[3]}  
-        > {r[4]}
-        ---
-        """)
+thank3_who = st.text_input("I thank (3):", placeholder="Another person or thing?")
+thank3_for = st.text_input("for (3):", placeholder="What did they do?")
+
+thoughts = st.text_area("My thoughts and journey today...", height=200)
+
+# --- Save button ---
+if st.button("💾 Save Today's Entry"):
+    c.execute("""
+        INSERT INTO entries (
+            date, mood,
+            thank1_who, thank1_for,
+            thank2_who, thank2_for,
+            thank3_who, thank3_for,
+            thoughts
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        datetime.now().strftime("%Y-%m-%d %H:%M"),
+        mood,
+        thank1_who, thank1_for,
+        thank2_who, thank2_for,
+        thank3_who, thank3_for,
+        thoughts
+    ))
+    conn.commit()
+    st.success("✅ Entry saved successfully!")
+
+# --- View past entries section ---
+st.markdown("---")
+st.subheader("📖 Past Entries")
+
+rows = c.execute("SELECT * FROM entries ORDER BY date DESC").fetchall()
+for r in rows:
+    st.markdown(f"""
+    **📅 {r[1]}** | {r[2]}  
+    🪶 **1.** I thank *{r[3]}* for *{r[4]}*  
+    🪶 **2.** I thank *{r[5]}* for *{r[6]}*  
+    🪶 **3.** I thank *{r[7]}* for *{r[8]}*  
+    > {r[9]}
+    ---
+    """)
 
 conn.close()
