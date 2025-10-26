@@ -1,9 +1,11 @@
 import streamlit as st
 import sqlite3
 from datetime import datetime
+import os
 
 # --- Database setup ---
-conn = sqlite3.connect("journal.db", check_same_thread=False)
+db_path = os.path.join(os.getcwd(), "journal.db")
+conn = sqlite3.connect(db_path, check_same_thread=False)
 c = conn.cursor()
 c.execute("""
 CREATE TABLE IF NOT EXISTS entries (
