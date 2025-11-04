@@ -24,7 +24,7 @@ thought_sheet = client.open_by_url(SHEET_URL).worksheet("JournalThoughts")
 
 # --- Session setup ---
 if "page" not in st.session_state:
-    st.session_state.page = "home"
+    st.session_state.page = "stats"
 
 def goto(page):
     st.session_state.page = page
@@ -84,26 +84,11 @@ elif menu == "📜 Journal History":
 # Start a NEW ladder here ↓
 # =========================
 
-# ============================================================
-#  JOURNAL PAGE (with long Journal + multiple thoughts)
-# ============================================================
-if st.session_state.page == "journal":   # ← was `elif`
-    ...
-elif st.session_state.page == "thoughts":
-    ...
-elif st.session_state.page == "stats":
-    ...
-elif st.session_state.page == "thankful_history":
-    ...
-elif st.session_state.page == "history":
-    ...
-else:
-    st.info("Select a page from the sidebar.")
 
 # ============================================================
 #  JOURNAL PAGE (with long Journal + multiple thoughts)
 # ============================================================
-elif st.session_state.page == "journal":
+if st.session_state.page == "journal":
     st.title("✍️ Create or Edit Journal Entry")
 
     today = date.today()
