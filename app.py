@@ -142,7 +142,10 @@ elif st.session_state.page == "journal":
     # Add another thought
     if st.button("➕ Add another thought"):
         st.session_state.thought_fields.append("")
-        st.experimental_rerun()
+        try:
+    		st.rerun()
+	except Exception:
+    		st.experimental_rerun()
 
     # --- Save button ---
     if st.button("💾 Save to Google Sheet"):
