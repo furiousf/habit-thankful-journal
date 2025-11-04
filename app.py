@@ -13,24 +13,6 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- Mobile-friendly CSS (adjusted to keep sidebar toggle visible) ---
-st.markdown("""
-<style>
-main, .block-container {max-width: 650px; margin:auto; padding:1rem 1.2rem;}
-html, body, [class*="css"] {font-size:18px; line-height:1.5;}
-button, .stButton>button, .stSelectbox, .stTextInput>div>input, textarea {
-    font-size:18px!important; padding:0.6rem!important;
-}
-@media (max-width:600px){
- .stPlotlyChart,.stAltairChart,.stVegaLiteChart,.stMarkdown,.stImage{width:95%!important;margin:auto;}
- .stButton>button{width:100%;}
- h1,h2,h3{font-size:22px!important;}
-}
-/* Keep sidebar toggle visible */
-footer {visibility:hidden;}
-</style>
-""", unsafe_allow_html=True)
-
 # --- Google Sheet setup ---
 SCOPE = ["https://www.googleapis.com/auth/spreadsheets"]
 CREDS = Credentials.from_service_account_info(st.secrets["google_service_account"], scopes=SCOPE)
