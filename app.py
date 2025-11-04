@@ -107,22 +107,50 @@ if st.session_state.page == "journal":
     mood = st.selectbox("Mood", mood_list,
                         index=mood_list.index(existing.get("mood","😊 Happy")) if existing else 0)
 
+    # --- Gratitude section ---
+    st.markdown("### 🙏 Gratitude for Today")
+
+    # Gratitude #1
     st.markdown("#### 🙏 Gratitude #1")
-    thank1_who = st.text_input("Who are you thankful for? (You can type a new name)",
-                            value=existing.get("thank1_who", ""))
+    thank1_who = st.text_input(
+        "Who are you thankful for? (type or reuse suggestion)",
+        value=existing.get("thank1_who", "")
+    )
     if thank_suggestions:
         st.caption("💡 Suggested: " + ", ".join(thank_suggestions[:5]))
-    thank1_for = st.text_input("for (1):", value=existing.get("thank1_for",""))
+    thank1_for = st.text_input(
+        "for (1):",
+        value=existing.get("thank1_for", ""),
+        placeholder="What did they do that you appreciate?"
+    )
 
-    thank2_who = st.selectbox("I thank (2):", [""]+thank_suggestions,
-                              index=([""]+thank_suggestions).index(existing.get("thank2_who",""))
-                              if existing.get("thank2_who","") in thank_suggestions else 0)
-    thank2_for = st.text_input("for (2):", value=existing.get("thank2_for",""))
+    # Gratitude #2
+    st.markdown("#### 🙏 Gratitude #2")
+    thank2_who = st.text_input(
+        "Who else are you thankful for?",
+        value=existing.get("thank2_who", "")
+    )
+    if thank_suggestions:
+        st.caption("💡 Suggested: " + ", ".join(thank_suggestions[:5]))
+    thank2_for = st.text_input(
+        "for (2):",
+        value=existing.get("thank2_for", ""),
+        placeholder="What did they do that you appreciate?"
+    )
 
-    thank3_who = st.selectbox("I thank (3):", [""]+thank_suggestions,
-                              index=([""]+thank_suggestions).index(existing.get("thank3_who",""))
-                              if existing.get("thank3_who","") in thank_suggestions else 0)
-    thank3_for = st.text_input("for (3):", value=existing.get("thank3_for",""))
+    # Gratitude #3
+    st.markdown("#### 🙏 Gratitude #3")
+    thank3_who = st.text_input(
+        "Anyone else you’re thankful for?",
+        value=existing.get("thank3_who", "")
+    )
+    if thank_suggestions:
+        st.caption("💡 Suggested: " + ", ".join(thank_suggestions[:5]))
+    thank3_for = st.text_input(
+        "for (3):",
+        value=existing.get("thank3_for", ""),
+        placeholder="What did they do that you appreciate?"
+    )
 
     # --- Long Journal section ---
     st.markdown("### 📖 My Journal for Today")
