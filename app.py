@@ -71,7 +71,7 @@ menu = st.sidebar.radio(
 
 if menu == "🏠 Home Summary":
     st.session_state.page = "stats"
-elif menu == "✍️ Journal":
+elif menu == "✍️ Thankful & Journal":
     st.session_state.page = "journal"
 elif menu == "🧠 Thoughts Explorer":
     st.session_state.page = "thoughts"
@@ -107,9 +107,11 @@ if st.session_state.page == "journal":
     mood = st.selectbox("Mood", mood_list,
                         index=mood_list.index(existing.get("mood","😊 Happy")) if existing else 0)
 
-    thank1_who = st.selectbox("I thank (1):", [""]+thank_suggestions,
-                              index=([""]+thank_suggestions).index(existing.get("thank1_who",""))
-                              if existing.get("thank1_who","") in thank_suggestions else 0)
+        st.markdown("#### 🙏 Gratitude #1")
+        thank1_who = st.text_input("Who are you thankful for? (You can type a new name)",
+                                value=existing.get("thank1_who", ""))
+        if thank_suggestions:
+            st.caption("💡 Suggested: " + ", ".join(thank_suggestions[:5]))
     thank1_for = st.text_input("for (1):", value=existing.get("thank1_for",""))
 
     thank2_who = st.selectbox("I thank (2):", [""]+thank_suggestions,
