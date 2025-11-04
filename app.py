@@ -3,6 +3,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 from datetime import datetime, date, timedelta
 import pandas as pd
+import matplotlib.pyplot as plt
 
 # --- Google Sheet setup ---
 SCOPE = ["https://www.googleapis.com/auth/spreadsheets"]
@@ -16,7 +17,7 @@ sheet = client.open_by_url(SHEET_URL).sheet1
 # --- Page setup ---
 st.set_page_config(page_title="Habit Thankful Journal", page_icon="🪶", layout="centered")
 
-# --- Session state navigation ---
+# --- Session navigation ---
 if "page" not in st.session_state:
     st.session_state.page = "home"
 
@@ -25,17 +26,16 @@ def goto(page):
     try:
         st.rerun()
     except Exception:
-        # fallback for older Streamlit versions
         st.experimental_rerun()
 
-# --- Load all records once ---
+# --- Load data ---
 records = sheet.get_all_records()
 df = pd.DataFrame(records) if records else pd.DataFrame(
     columns=["timestamp", "mood", "thank1_who", "thank1_for",
              "thank2_who", "thank2_for", "thank3_who", "thank3_for", "thoughts"]
 )
 
-# --- Helper: get unique "thank who" suggestions ---
+# --- Helper ---
 def get_thank_suggestions():
     names = pd.concat([
         df["thank1_who"], df["thank2_who"], df["thank3_who"]
@@ -52,7 +52,7 @@ if st.session_state.page == "home":
         if st.button("✍️ Write / Edit Journal", use_container_width=True):
             goto("journal")
     with col2:
-        if st.button("📖 Read & Mood Stats", use_container_width=True):
+        if st.button("📊 Read & Stats", use_container_width=True):
             goto("stats")
 
     st.markdown("---")
@@ -73,7 +73,6 @@ elif st.session_state.page == "journal":
 
     mood_list = ["😊 Happy", "😐 Neutral", "😞 Sad", "🤩 Excited", "😔 Tired"]
 
-    # Try loading existing entry
     df["date_only"] = df["timestamp"].apply(lambda x: str(x).split(" ")[0] if x else "")
     existing = df.loc[df["date_only"] == str(entry_date)]
     existing = existing.iloc[0].to_dict() if not existing.empty else {}
@@ -128,32 +127,71 @@ elif st.session_state.page == "stats":
     if df.empty:
         st.info("No data yet 🌱 Please write some journal entries first.")
     else:
-        # Filter by date
+        # Convert timestamp to datetime
         df["timestamp_dt"] = pd.to_datetime(df["timestamp"], errors="coerce")
-        default_start = date.today() - timedelta(days=30)
-        date_range = st.date_input(
-            "📅 Select date range:",
-            value=(default_start, date.today())
-        )
 
-        start_date, end_date = date_range
+        # --- Quick filter buttons ---
+        today = date.today()
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            if st.button("Last 7 Days"):
+                start_date = today - timedelta(days=7)
+                end_date = today
+            else:
+                start_date = None
+                end_date = None
+        with col2:
+            if st.button("Last 30 Days"):
+                start_date = today - timedelta(days=30)
+                end_date = today
+        with col3:
+            st.write("")  # filler
+
+        # --- Manual date filter fallback ---
+        if not start_date:
+            default_start = date.today() - timedelta(days=30)
+            date_range = st.date_input(
+                "📅 Or select date range:",
+                value=(default_start, date.today())
+            )
+            start_date, end_date = date_range
+
+        # Filter
         mask = (df["timestamp_dt"].dt.date >= start_date) & (df["timestamp_dt"].dt.date <= end_date)
         filtered = df.loc[mask]
 
-        st.subheader("😊 Mood trend over time")
+        # --- Chart type selector ---
+        chart_type = st.radio("Chart type:", ["Bar", "Pie"], horizontal=True)
+
+        # --- Mood chart ---
+        st.subheader("😊 Mood trend")
         if not filtered.empty:
             mood_count = filtered.groupby("mood").size().reset_index(name="count")
-            st.bar_chart(mood_count.set_index("mood"))
+
+            if chart_type == "Bar":
+                st.bar_chart(mood_count.set_index("mood"))
+            else:
+                fig, ax = plt.subplots()
+                ax.pie(mood_count["count"], labels=mood_count["mood"], autopct="%1.0f%%", startangle=90)
+                ax.axis("equal")
+                st.pyplot(fig)
         else:
             st.write("No data for this period.")
 
+        # --- People chart ---
         st.subheader("🙌 Most thanked people")
         people = pd.concat([
             filtered["thank1_who"], filtered["thank2_who"], filtered["thank3_who"]
         ]).dropna()
         if not people.empty:
             top_people = people.value_counts().head(10)
-            st.bar_chart(top_people)
+            if chart_type == "Bar":
+                st.bar_chart(top_people)
+            else:
+                fig, ax = plt.subplots()
+                ax.pie(top_people.values, labels=top_people.index, autopct="%1.0f%%", startangle=90)
+                ax.axis("equal")
+                st.pyplot(fig)
         else:
             st.write("No people data for this period.")
 
