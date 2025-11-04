@@ -48,7 +48,7 @@ def goto(page):
     except Exception:
         st.experimental_rerun()
 
-# Load data once
+# Load data
 records = sheet.get_all_records()
 df = pd.DataFrame(records) if records else pd.DataFrame(
     columns=["timestamp","mood","thank1_who","thank1_for",
@@ -68,10 +68,14 @@ def get_thank_suggestions():
 
 # --- Sidebar navigation ---
 st.sidebar.title("🪶 Habit Thankful Journal")
-menu = st.sidebar.radio("Navigate", ["🏠 Home","✍️ Journal","📊 Stats"])
+menu = st.sidebar.radio(
+    "Navigate",
+    ["🏠 Home","✍️ Journal","📊 Stats","📜 History"]
+)
 if menu == "🏠 Home": st.session_state.page = "home"
 elif menu == "✍️ Journal": st.session_state.page = "journal"
 elif menu == "📊 Stats": st.session_state.page = "stats"
+elif menu == "📜 History": st.session_state.page = "history"
 
 # ============================================================
 #  HOME PAGE
@@ -149,14 +153,12 @@ elif st.session_state.page == "stats":
         df["timestamp_dt"] = pd.to_datetime(df["timestamp"], errors="coerce")
         today = date.today()
 
-        # --- Quick filter buttons ---
         col1, col2, _ = st.columns([1,1,2])
         with col1:
             if st.button("Last 7 Days"): st.session_state.selected_filter="7"
         with col2:
             if st.button("Last 30 Days"): st.session_state.selected_filter="30"
 
-        # --- Handle time range ---
         if st.session_state.get("selected_filter")=="7":
             start_date=today-timedelta(days=7); end_date=today
             st.info(f"📅 Showing data from **{start_date}** to **{end_date}** (Last 7 days)")
@@ -171,10 +173,8 @@ elif st.session_state.page == "stats":
 
         mask=(df["timestamp_dt"].dt.date>=start_date)&(df["timestamp_dt"].dt.date<=end_date)
         filtered=df.loc[mask]
-
         chart_type=st.radio("Chart type:",["Bar","Pie"],horizontal=True)
 
-        # --- Mood chart ---
         st.subheader("😊 Mood distribution")
         if not filtered.empty:
             mood_count=filtered.groupby("mood").size().reset_index(name="count")
@@ -188,7 +188,6 @@ elif st.session_state.page == "stats":
         else:
             st.write("No mood data for this period.")
 
-        # --- People chart ---
         st.subheader("🙌 Most thanked people")
         people=pd.concat([filtered["thank1_who"],filtered["thank2_who"],filtered["thank3_who"]]).dropna()
         if not people.empty:
@@ -202,5 +201,28 @@ elif st.session_state.page == "stats":
                 st.pyplot(fig)
         else:
             st.write("No people data for this period.")
+
+    if st.button("🏠 Back to Home"): goto("home")
+
+# ============================================================
+#  HISTORY PAGE
+# ============================================================
+elif st.session_state.page == "history":
+    st.title("📜 Journal History")
+
+    if df.empty:
+        st.info("No data yet 🌱 Write your first gratitude entry.")
+    else:
+        df_display = df.copy()
+        df_display["Date"] = pd.to_datetime(df_display["timestamp"], errors="coerce").dt.date
+        df_display = df_display[[
+            "Date","mood","thoughts",
+            "thank1_who","thank1_for",
+            "thank2_who","thank2_for",
+            "thank3_who","thank3_for"
+        ]].sort_values("Date", ascending=False)
+
+        st.dataframe(df_display, use_container_width=True, height=500)
+        st.caption("🕒 Showing all journal records (latest first).")
 
     if st.button("🏠 Back to Home"): goto("home")
