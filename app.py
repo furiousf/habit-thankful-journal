@@ -35,9 +35,11 @@ SCOPE = ["https://www.googleapis.com/auth/spreadsheets"]
 CREDS = Credentials.from_service_account_info(st.secrets["google_service_account"], scopes=SCOPE)
 client = gspread.authorize(CREDS)
 SHEET_URL = "https://docs.google.com/spreadsheets/d/15hNZ96Lh5GGo0bQNl_XadE7B3Ii84XFBs7KH4Q03jLs/edit?usp=sharing"
-sheet = client.open_by_url(SHEET_URL).sheet1
 
-# --- Session setup & helper ---
+journal_sheet = client.open_by_url(SHEET_URL).sheet1
+thought_sheet = client.open_by_url(SHEET_URL).worksheet("JournalThoughts")
+
+# --- Session setup ---
 if "page" not in st.session_state:
     st.session_state.page = "home"
 
@@ -48,17 +50,22 @@ def goto(page):
     except Exception:
         st.experimental_rerun()
 
-# Load data
-records = sheet.get_all_records()
-df = pd.DataFrame(records) if records else pd.DataFrame(
+# --- Load data ---
+entries = journal_sheet.get_all_records()
+df_entries = pd.DataFrame(entries) if entries else pd.DataFrame(
     columns=["timestamp","mood","thank1_who","thank1_for",
-             "thank2_who","thank2_for","thank3_who","thank3_for","thoughts"]
+             "thank2_who","thank2_for","thank3_who","thank3_for"]
+)
+
+thoughts = thought_sheet.get_all_records()
+df_thoughts = pd.DataFrame(thoughts) if thoughts else pd.DataFrame(
+    columns=["date","thought","created_at"]
 )
 
 def get_thank_suggestions():
     try:
         names = pd.concat([
-            df["thank1_who"], df["thank2_who"], df["thank3_who"]
+            df_entries["thank1_who"], df_entries["thank2_who"], df_entries["thank3_who"]
         ], ignore_index=True)
         names = names.dropna().astype(str).str.strip()
         names = names[names != ""]
@@ -68,10 +75,7 @@ def get_thank_suggestions():
 
 # --- Sidebar navigation ---
 st.sidebar.title("🪶 Habit Thankful Journal")
-menu = st.sidebar.radio(
-    "Navigate",
-    ["🏠 Home","✍️ Journal","📊 Stats","📜 History"]
-)
+menu = st.sidebar.radio("Navigate", ["🏠 Home","✍️ Journal","📊 Stats","📜 History"])
 if menu == "🏠 Home": st.session_state.page = "home"
 elif menu == "✍️ Journal": st.session_state.page = "journal"
 elif menu == "📊 Stats": st.session_state.page = "stats"
@@ -92,7 +96,7 @@ if st.session_state.page == "home":
     st.write("Reflect daily. Be thankful. Grow mindfully 🌞")
 
 # ============================================================
-#  JOURNAL PAGE (1-to-many thoughts)
+#  JOURNAL PAGE (entry + multiple thoughts)
 # ============================================================
 elif st.session_state.page == "journal":
     st.title("✍️ Create or Edit Journal Entry")
@@ -104,9 +108,9 @@ elif st.session_state.page == "journal":
 
     mood_list = ["😊 Happy","😐 Neutral","😞 Sad","🤩 Excited","😔 Tired"]
 
-    # Existing entry load
-    df["date_only"] = df["timestamp"].apply(lambda x:str(x).split(" ")[0] if x else "")
-    existing = df.loc[df["date_only"] == str(entry_date)]
+    # Load existing entry if exists
+    df_entries["date_only"] = df_entries["timestamp"].apply(lambda x:str(x).split(" ")[0] if x else "")
+    existing = df_entries.loc[df_entries["date_only"] == str(entry_date)]
     existing = existing.iloc[0].to_dict() if not existing.empty else {}
 
     thank_suggestions = get_thank_suggestions()
@@ -128,55 +132,55 @@ elif st.session_state.page == "journal":
                               if existing.get("thank3_who","") in thank_suggestions else 0)
     thank3_for = st.text_input("for (3):", value=existing.get("thank3_for",""))
 
-    # --- Dynamic Thoughts section ---
-    st.markdown("### 💭 My Thoughts Today")
+    # --- Thoughts section ---
+    st.markdown("### 💭 Thoughts for this day")
+    day_thoughts = df_thoughts[df_thoughts["date"] == str(entry_date)]
+    for idx, row in day_thoughts.iterrows():
+        st.text_area(f"Thought {idx+1}", value=row["thought"], height=100, disabled=True)
+
     if "thought_fields" not in st.session_state:
         st.session_state.thought_fields = [""]
-    new_thoughts = []
 
-    # Show all text areas for existing thoughts
+    new_thoughts = []
     for i, val in enumerate(st.session_state.thought_fields):
-        new_val = st.text_area(f"Thought {i+1}", value=val, height=100, key=f"thought_{i}")
+        new_val = st.text_area(f"Add new thought {i+1}", value=val, height=100, key=f"new_thought_{i}")
         new_thoughts.append(new_val)
 
-# Add another thought
-if st.button("➕ Add another thought"):
-    st.session_state.thought_fields.append("")
-    try:
-        st.rerun()
-    except Exception:
-        st.experimental_rerun()
+    if st.button("➕ Add another thought"):
+        st.session_state.thought_fields.append("")
+        try:
+            st.rerun()
+        except Exception:
+            st.experimental_rerun()
+
     # --- Save button ---
     if st.button("💾 Save to Google Sheet"):
         timestamp = f"{entry_date} {datetime.now().strftime('%H:%M')}"
         row = [timestamp,mood,thank1_who,thank1_for,
-               thank2_who,thank2_for,thank3_who,thank3_for,""]
-        # Save journal entry
+               thank2_who,thank2_for,thank3_who,thank3_for]
         if not existing:
-            sheet.append_row(row)
+            journal_sheet.append_row(row)
         else:
-            row_index = df.index[df["date_only"]==str(entry_date)][0]+2
-            sheet.update(f"A{row_index}:I{row_index}", [row])
+            row_index = df_entries.index[df_entries["date_only"]==str(entry_date)][0]+2
+            journal_sheet.update(f"A{row_index}:H{row_index}", [row])
 
-        # Save multiple thoughts
-        thought_sheet = client.open_by_url(SHEET_URL).worksheet("JournalThoughts")
         for t in new_thoughts:
             if t.strip():
                 thought_sheet.append_row([str(entry_date), t.strip(), datetime.now().strftime("%Y-%m-%d %H:%M")])
-        st.success(f"✅ Entry and thoughts saved for {entry_date}!")
+        st.success(f"✅ Entry and new thoughts saved for {entry_date}!")
 
-    if st.button("🏠 Back to Home"):
-        goto("home")
+    if st.button("🏠 Back to Home"): goto("home")
+
 # ============================================================
 #  STATS PAGE
 # ============================================================
 elif st.session_state.page == "stats":
     st.title("📊 Mood & Gratitude Insights")
 
-    if df.empty:
+    if df_entries.empty:
         st.info("No data yet 🌱 Please write some journal entries first.")
     else:
-        df["timestamp_dt"] = pd.to_datetime(df["timestamp"], errors="coerce")
+        df_entries["timestamp_dt"] = pd.to_datetime(df_entries["timestamp"], errors="coerce")
         today = date.today()
 
         col1, col2, _ = st.columns([1,1,2])
@@ -197,8 +201,8 @@ elif st.session_state.page == "stats":
             start_date,end_date=date_range
             st.info(f"📅 Showing data from **{start_date}** to **{end_date}**")
 
-        mask=(df["timestamp_dt"].dt.date>=start_date)&(df["timestamp_dt"].dt.date<=end_date)
-        filtered=df.loc[mask]
+        mask=(df_entries["timestamp_dt"].dt.date>=start_date)&(df_entries["timestamp_dt"].dt.date<=end_date)
+        filtered=df_entries.loc[mask]
         chart_type=st.radio("Chart type:",["Bar","Pie"],horizontal=True)
 
         st.subheader("😊 Mood distribution")
@@ -228,6 +232,9 @@ elif st.session_state.page == "stats":
         else:
             st.write("No people data for this period.")
 
+        st.subheader("💭 Total thoughts added")
+        st.write(f"🧠 You have written {len(df_thoughts)} thoughts in total!")
+
     if st.button("🏠 Back to Home"): goto("home")
 
 # ============================================================
@@ -236,13 +243,19 @@ elif st.session_state.page == "stats":
 elif st.session_state.page == "history":
     st.title("📜 Journal History")
 
-    if df.empty:
+    if df_entries.empty:
         st.info("No data yet 🌱 Write your first gratitude entry.")
     else:
-        df_display = df.copy()
+        df_display = df_entries.copy()
         df_display["Date"] = pd.to_datetime(df_display["timestamp"], errors="coerce").dt.date
+
+        # Merge with number of thoughts
+        thought_counts = df_thoughts.groupby("date").size().reset_index(name="ThoughtsCount")
+        df_display = pd.merge(df_display, thought_counts, how="left",
+                              left_on="Date", right_on="date").fillna({"ThoughtsCount":0})
+
         df_display = df_display[[
-            "Date","mood","thoughts",
+            "Date","mood","ThoughtsCount",
             "thank1_who","thank1_for",
             "thank2_who","thank2_for",
             "thank3_who","thank3_for"
