@@ -1,22 +1,23 @@
 import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
-from datetime import datetime
+from datetime import datetime, date
 
 # --- Google Sheet setup ---
 SCOPE = ["https://www.googleapis.com/auth/spreadsheets"]
-# Load credentials from Streamlit Secrets (you’ll paste them in Cloud → Settings → Secrets)
 CREDS = Credentials.from_service_account_info(st.secrets["google_service_account"], scopes=SCOPE)
 client = gspread.authorize(CREDS)
 
-# Replace with your actual Google Sheet name (or URL if you prefer)
-SHEET_NAME = "HabitThankfulJournal"
+# Use your Google Sheet URL (this is safest)
 sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/15hNZ96Lh5GGo0bQNl_XadE7B3Ii84XFBs7KH4Q03jLs/edit?usp=sharing").sheet1
 
 # --- Page layout ---
 st.set_page_config(page_title="Habit Thankful Journal", page_icon="🪶", layout="centered")
 st.title("🪶 Habit Thankful Journal")
 st.write("Take a moment to slow down and reflect ✨")
+
+# --- Date picker ---
+entry_date = st.date_input("📅 Choose date:", value=date.today())
 
 # --- Input form ---
 mood = st.selectbox("Mood", ["😊 Happy", "😐 Neutral", "😞 Sad", "🤩 Excited", "😔 Tired"])
@@ -34,8 +35,9 @@ thoughts = st.text_area("My thoughts and journey today...", height=200)
 
 # --- Save to Google Sheet ---
 if st.button("💾 Save to Google Sheet"):
+    timestamp = f"{entry_date} {datetime.now().strftime('%H:%M')}"
     row = [
-        datetime.now().strftime("%Y-%m-%d %H:%M"),
+        timestamp,
         mood,
         thank1_who, thank1_for,
         thank2_who, thank2_for,
@@ -43,7 +45,7 @@ if st.button("💾 Save to Google Sheet"):
         thoughts
     ]
     sheet.append_row(row)
-    st.success("✅ Entry saved to Google Sheet!")
+    st.success(f"✅ Entry saved for {entry_date}!")
 
 # --- View recent entries ---
 st.markdown("---")
@@ -51,7 +53,7 @@ st.subheader("📖 Recent Entries")
 
 records = sheet.get_all_records()
 if records:
-    for r in records[-5:][::-1]:   # show last 5
+    for r in records[-5:][::-1]:
         st.markdown(f"""
         **📅 {r['timestamp']}** | {r['mood']}  
         🪶 1. I thank *{r['thank1_who']}* for *{r['thank1_for']}*  
