@@ -337,7 +337,7 @@ elif st.session_state.page == "stats":
     if st.button("🏠 Back to Home"): goto("home")
 
 # ============================================================
-#  HISTORY PAGE (Journal only)
+#  HISTORY PAGE (Journal only, table view)
 # ============================================================
 elif st.session_state.page == "history":
     st.title("📜 Journal History")
@@ -350,10 +350,11 @@ elif st.session_state.page == "history":
         df_journal = df_entries.copy()
         df_journal["Date"] = pd.to_datetime(df_journal["timestamp"], errors="coerce").dt.date
 
-        # Ensure 'journal' column exists (for backward compatibility)
+        # Ensure journal column exists
         if "journal" not in df_journal.columns:
             df_journal["journal"] = ""
 
+        # Keep key columns only
         df_journal = df_journal[["Date", "mood", "journal"]].sort_values("Date", ascending=False)
 
         # --- Filters ---
@@ -372,17 +373,22 @@ elif st.session_state.page == "history":
         if df_view.empty:
             st.info("No journal entries match your filters.")
         else:
-            for _, row in df_view.iterrows():
-                st.markdown(
-                    f"""
-                    **📅 {row['Date']} | {row['mood']}**  
-                    <div style="background:#f9f9f9; border-radius:8px; padding:10px; margin:6px 0;">
-                    {row['journal'] if row['journal'] else '_No journal text_'}
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
-            st.caption("🕒 Newest first — showing your daily reflections.")
+            st.dataframe(
+                df_view,
+                use_container_width=True,
+                height=600,
+            )
+
+            st.caption("🕒 Showing your daily journals in table view (newest first).")
+
+        # --- Optional download ---
+        csv_data = df_view.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            label="📤 Download Journal CSV",
+            data=csv_data,
+            file_name="journal_history.csv",
+            mime="text/csv",
+        )
 
     if st.button("🏠 Back to Home"):
         goto("home")
