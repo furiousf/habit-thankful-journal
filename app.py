@@ -357,15 +357,10 @@ elif st.session_state.page == "history":
                 df_display = df_entries.copy()
                 df_display["Date"] = pd.to_datetime(df_display["timestamp"], errors="coerce").dt.date
 
-                # Merge thought count for reference
-                thought_counts = df_thoughts.groupby("date").size().reset_index(name="ThoughtsCount")
-                df_display = pd.merge(df_display, thought_counts, how="left",
-                                      left_on="Date", right_on="date").fillna({"ThoughtsCount": 0})
-
                 df_display = df_display[[
                     "Date","mood","thank1_who","thank1_for",
                     "thank2_who","thank2_for",
-                    "thank3_who","thank3_for","ThoughtsCount"
+                    "thank3_who","thank3_for"
                 ]].sort_values("Date", ascending=False)
 
                 st.dataframe(df_display, use_container_width=True, height=500)
