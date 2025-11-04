@@ -13,7 +13,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- Mobile-friendly CSS ---
+# --- Mobile-friendly CSS (adjusted to keep sidebar toggle visible) ---
 st.markdown("""
 <style>
 main, .block-container {max-width: 650px; margin:auto; padding:1rem 1.2rem;}
@@ -26,7 +26,8 @@ button, .stButton>button, .stSelectbox, .stTextInput>div>input, textarea {
  .stButton>button{width:100%;}
  h1,h2,h3{font-size:22px!important;}
 }
-#MainMenu, footer, header {visibility:hidden;}
+/* Keep sidebar toggle visible */
+footer {visibility:hidden;}
 </style>
 """, unsafe_allow_html=True)
 
