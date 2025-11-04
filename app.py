@@ -62,40 +62,24 @@ st.sidebar.title("🪶 Habit Thankful Journal")
 menu = st.sidebar.radio(
     "Navigate",
     [
-        "🏠 Home",
+        "🏠 Home Summary",
         "✍️ Journal",
         "🧠 Thoughts Explorer",
-        "📊 Stats",
+        "🙏 Thankful History",
         "📜 Journal History"
     ]
 )
 
-if menu == "🏠 Home":
-    st.session_state.page = "home"
+if menu == "🏠 Home Summary":
+    st.session_state.page = "stats"
 elif menu == "✍️ Journal":
     st.session_state.page = "journal"
 elif menu == "🧠 Thoughts Explorer":
     st.session_state.page = "thoughts"
-elif menu == "📊 Stats":
-    st.session_state.page = "stats"
+elif menu == "🙏 Thankful History":
+    st.session_state.page = "thankful_history"
 elif menu == "📜 Journal History":
     st.session_state.page = "history"
-
-
-# ============================================================
-#  HOME PAGE
-# ============================================================
-if st.session_state.page == "home":
-    st.title("🪶 Habit Thankful Journal")
-    st.write("Welcome to your gratitude and reflection space 🌿")
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("✍️ Write / Edit Journal", use_container_width=True): goto("journal")
-    with col2:
-        if st.button("📊 View Stats", use_container_width=True): goto("stats")
-    st.markdown("---")
-    st.write("Reflect daily. Be thankful. Grow mindfully 🌞")
-
 
 # ============================================================
 #  JOURNAL PAGE (with long Journal + multiple thoughts)
@@ -195,7 +179,7 @@ elif st.session_state.page == "journal":
         st.experimental_rerun()
 
     if st.button("🏠 Back to Home"):
-        goto("home")
+        goto("stats")
 
 # ============================================================
 #  THOUGHTS EXPLORER PAGE
@@ -268,13 +252,13 @@ elif st.session_state.page == "thoughts":
                      use_container_width=True, height=600)
 
     if st.button("🏠 Back to Home"):
-        goto("home")
+        goto("stats")
 
 # ============================================================
 #  STATS PAGE
 # ============================================================
 elif st.session_state.page == "stats":
-    st.title("📊 Mood & Gratitude Insights")
+    st.title("🏠 Home Dashboard — Mood & Gratitude Insights")
 
     if df_entries.empty:
         st.info("No data yet 🌱 Please write some journal entries first.")
@@ -334,7 +318,72 @@ elif st.session_state.page == "stats":
         st.subheader("💭 Total thoughts added")
         st.write(f"🧠 You have written {len(df_thoughts)} thoughts in total!")
 
-    if st.button("🏠 Back to Home"): goto("home")
+    if st.button("🏠 Back to Home"): goto("stats")
+
+# ============================================================
+#  THANKFUL HISTORY PAGE
+# ============================================================
+elif st.session_state.page == "thankful_history":
+    st.title("🙏 Thankful History")
+
+    if df_entries.empty:
+        st.info("No thankful entries yet 🌱 Write your first gratitude journal.")
+    else:
+        st.subheader("💖 Gratitude Records")
+
+        df_thanks = df_entries.copy()
+        df_thanks["Date"] = pd.to_datetime(df_thanks["timestamp"], errors="coerce").dt.date
+
+        # Keep only relevant columns
+        df_thanks = df_thanks[[
+            "Date", "mood",
+            "thank1_who", "thank1_for",
+            "thank2_who", "thank2_for",
+            "thank3_who", "thank3_for"
+        ]].sort_values("Date", ascending=False)
+
+        # --- Filters ---
+        col1, col2 = st.columns([1, 2])
+        with col1:
+            date_filter = st.date_input("📅 Filter by date", value=None)
+        with col2:
+            keyword = st.text_input("🔍 Search name or keyword", placeholder="e.g. Mum, colleague, kindness...")
+
+        df_view = df_thanks.copy()
+        if date_filter:
+            df_view = df_view[df_view["Date"] == date_filter]
+        if keyword:
+            mask = (
+                df_view["thank1_who"].astype(str).str.contains(keyword, case=False, na=False) |
+                df_view["thank1_for"].astype(str).str.contains(keyword, case=False, na=False) |
+                df_view["thank2_who"].astype(str).str.contains(keyword, case=False, na=False) |
+                df_view["thank2_for"].astype(str).str.contains(keyword, case=False, na=False) |
+                df_view["thank3_who"].astype(str).str.contains(keyword, case=False, na=False) |
+                df_view["thank3_for"].astype(str).str.contains(keyword, case=False, na=False)
+            )
+            df_view = df_view[mask]
+
+        if df_view.empty:
+            st.info("No thankful records match your filters.")
+        else:
+            st.dataframe(
+                df_view,
+                use_container_width=True,
+                height=600,
+            )
+            st.caption("🕒 Showing all gratitude entries (newest first).")
+
+        # --- Optional download ---
+        csv_data = df_view.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            label="📤 Download Thankful CSV",
+            data=csv_data,
+            file_name="thankful_history.csv",
+            mime="text/csv",
+        )
+
+    if st.button("🏠 Back to Home"):
+        goto("stats")
 
 # ============================================================
 #  HISTORY PAGE (Journal only, table view)
@@ -391,4 +440,4 @@ elif st.session_state.page == "history":
         )
 
     if st.button("🏠 Back to Home"):
-        goto("home")
+        goto("stats")
