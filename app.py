@@ -78,8 +78,7 @@ st.sidebar.title("🪶 Habit Thankful Journal")
 menu = st.sidebar.radio("Navigate", ["🏠 Home","✍️ Journal","📊 Stats","📜 History"])
 if menu == "🏠 Home": st.session_state.page = "home"
 elif menu == "✍️ Journal": st.session_state.page = "journal"
-elif menu == "🧠 Thoughts Explorer":
-    st.session_state.page = "thoughts"
+elif menu == "🧠 Thoughts Explorer": st.session_state.page = "thoughts"
 elif menu == "📊 Stats": st.session_state.page = "stats"
 elif menu == "📜 History": st.session_state.page = "history"
 
