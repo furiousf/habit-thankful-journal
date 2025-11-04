@@ -92,16 +92,19 @@ if st.session_state.page == "home":
     st.write("Reflect daily. Be thankful. Grow mindfully 🌞")
 
 # ============================================================
-#  JOURNAL PAGE
+#  JOURNAL PAGE (1-to-many thoughts)
 # ============================================================
 elif st.session_state.page == "journal":
     st.title("✍️ Create or Edit Journal Entry")
+
     today = date.today()
     min_date = today - timedelta(days=7)
     entry_date = st.date_input("📅 Choose date (past 7 days only):",
                                value=today, min_value=min_date, max_value=today)
+
     mood_list = ["😊 Happy","😐 Neutral","😞 Sad","🤩 Excited","😔 Tired"]
 
+    # Existing entry load
     df["date_only"] = df["timestamp"].apply(lambda x:str(x).split(" ")[0] if x else "")
     existing = df.loc[df["date_only"] == str(entry_date)]
     existing = existing.iloc[0].to_dict() if not existing.empty else {}
@@ -124,23 +127,44 @@ elif st.session_state.page == "journal":
                               index=([""]+thank_suggestions).index(existing.get("thank3_who",""))
                               if existing.get("thank3_who","") in thank_suggestions else 0)
     thank3_for = st.text_input("for (3):", value=existing.get("thank3_for",""))
-    thoughts = st.text_area("My thoughts and journey today...",
-                            value=existing.get("thoughts",""), height=200)
 
+    # --- Dynamic Thoughts section ---
+    st.markdown("### 💭 My Thoughts Today")
+    if "thought_fields" not in st.session_state:
+        st.session_state.thought_fields = [""]
+    new_thoughts = []
+
+    # Show all text areas for existing thoughts
+    for i, val in enumerate(st.session_state.thought_fields):
+        new_val = st.text_area(f"Thought {i+1}", value=val, height=100, key=f"thought_{i}")
+        new_thoughts.append(new_val)
+
+    # Add another thought
+    if st.button("➕ Add another thought"):
+        st.session_state.thought_fields.append("")
+        st.experimental_rerun()
+
+    # --- Save button ---
     if st.button("💾 Save to Google Sheet"):
         timestamp = f"{entry_date} {datetime.now().strftime('%H:%M')}"
         row = [timestamp,mood,thank1_who,thank1_for,
-               thank2_who,thank2_for,thank3_who,thank3_for,thoughts]
+               thank2_who,thank2_for,thank3_who,thank3_for,""]
+        # Save journal entry
         if not existing:
             sheet.append_row(row)
-            st.success(f"✅ New entry saved for {entry_date}!")
         else:
             row_index = df.index[df["date_only"]==str(entry_date)][0]+2
             sheet.update(f"A{row_index}:I{row_index}", [row])
-            st.success(f"✅ Updated entry for {entry_date}!")
 
-    if st.button("🏠 Back to Home"): goto("home")
+        # Save multiple thoughts
+        thought_sheet = client.open_by_url(SHEET_URL).worksheet("JournalThoughts")
+        for t in new_thoughts:
+            if t.strip():
+                thought_sheet.append_row([str(entry_date), t.strip(), datetime.now().strftime("%Y-%m-%d %H:%M")])
+        st.success(f"✅ Entry and thoughts saved for {entry_date}!")
 
+    if st.button("🏠 Back to Home"):
+        goto("home")
 # ============================================================
 #  STATS PAGE
 # ============================================================
