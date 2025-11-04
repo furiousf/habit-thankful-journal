@@ -11,7 +11,7 @@ client = gspread.authorize(CREDS)
 
 # Replace with your actual Google Sheet name (or URL if you prefer)
 SHEET_NAME = "HabitThankfulJournal"
-sheet = client.open_by_url(https://docs.google.com/spreadsheets/d/15hNZ96Lh5GGo0bQNl_XadE7B3Ii84XFBs7KH4Q03jLs/edit?usp=sharing).Sheet1
+sheet = client.open_by_url(https://docs.google.com/spreadsheets/d/15hNZ96Lh5GGo0bQNl_XadE7B3Ii84XFBs7KH4Q03jLs/edit?usp=sharing).sheet1
 
 # --- Page layout ---
 st.set_page_config(page_title="Habit Thankful Journal", page_icon="🪶", layout="centered")
