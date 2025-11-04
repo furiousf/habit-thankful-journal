@@ -171,23 +171,61 @@ elif st.session_state.page == "journal":
         st.success(f"✅ Entry and new thoughts saved for {entry_date}!")
 
     if st.button("🏠 Back to Home"): goto("home")
-
 # ============================================================
 #  THOUGHTS EXPLORER PAGE
 # ============================================================
 elif st.session_state.page == "thoughts":
     st.title("🧠 All Thoughts Explorer")
 
-    if df_thoughts.empty:
-        st.info("No thoughts yet 🌱")
-    else:
-        st.write("Search and explore all your reflections.")
+    # --- Add new thought section ---
+    st.markdown("### ✍️ Add a New Thought")
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        new_thought_date = st.date_input("📅 Date", value=date.today())
+    with col2:
+        add_now = st.checkbox("Use current time", value=True)
 
-        col1, col2 = st.columns([1,2])
+    new_thought = st.text_area(
+        "💭 Your Thought",
+        placeholder="Write what's on your mind...",
+        height=100,
+    )
+
+    if st.button("💾 Save Thought"):
+        if new_thought.strip():
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M") if add_now else ""
+            thought_sheet.append_row([
+                str(new_thought_date),
+                new_thought.strip(),
+                timestamp
+            ])
+            st.success("✅ New thought saved successfully!")
+            st.session_state["refresh_thoughts"] = True
+            st.rerun()
+        else:
+            st.warning("⚠️ Please write something before saving.")
+
+    st.markdown("---")
+
+    # --- View all thoughts section ---
+    if df_thoughts.empty:
+        st.info("No thoughts yet 🌱 Start by adding your first one above.")
+    else:
+        st.subheader("🧠 All Recorded Thoughts")
+
+        col1, col2 = st.columns([1, 2])
         with col1:
             date_filter = st.date_input("📅 Filter by date", value=None)
         with col2:
             keyword = st.text_input("🔍 Search by keyword")
+
+        # Reload data if refreshed
+        if st.session_state.get("refresh_thoughts"):
+            thoughts = thought_sheet.get_all_records()
+            df_thoughts = pd.DataFrame(thoughts) if thoughts else pd.DataFrame(
+                columns=["date", "thought", "created_at"]
+            )
+            st.session_state["refresh_thoughts"] = False
 
         df_view = df_thoughts.copy()
         df_view["date_dt"] = pd.to_datetime(df_view["date"], errors="coerce")
@@ -199,11 +237,13 @@ elif st.session_state.page == "thoughts":
 
         df_view = df_view.sort_values("date_dt", ascending=False)
         df_view.rename(columns={"date": "Date", "thought": "Thought", "created_at": "Created"}, inplace=True)
-        st.dataframe(df_view[["Date","Thought","Created"]], use_container_width=True, height=600)
+
+        st.dataframe(df_view[["Date","Thought","Created"]],
+                     use_container_width=True, height=600)
 
     if st.button("🏠 Back to Home"):
         goto("home")
-
+        
 # ============================================================
 #  STATS PAGE
 # ============================================================
