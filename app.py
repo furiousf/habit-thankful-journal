@@ -2,40 +2,61 @@ import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
 from datetime import datetime, date, timedelta
+import pandas as pd
 
 # --- Google Sheet setup ---
 SCOPE = ["https://www.googleapis.com/auth/spreadsheets"]
 CREDS = Credentials.from_service_account_info(st.secrets["google_service_account"], scopes=SCOPE)
 client = gspread.authorize(CREDS)
 
-# Use your Google Sheet URL
-sheet = client.open_by_url(
-    "https://docs.google.com/spreadsheets/d/15hNZ96Lh5GGo0bQNl_XadE7B3Ii84XFBs7KH4Q03jLs/edit?usp=sharing"
-).sheet1
+# Your Google Sheet URL
+SHEET_URL = "https://docs.google.com/spreadsheets/d/15hNZ96Lh5GGo0bQNl_XadE7B3Ii84XFBs7KH4Q03jLs/edit?usp=sharing"
+sheet = client.open_by_url(SHEET_URL).sheet1
 
-# --- Page config ---
+# --- Page setup ---
 st.set_page_config(page_title="Habit Thankful Journal", page_icon="🪶", layout="centered")
 
-# --- Sidebar navigation ---
-st.sidebar.title("🪶 Habit Thankful Journal")
-menu = st.sidebar.radio("Navigate", ["🏠 Home", "✍️ Create/Edit Today's Journal", "📖 Read Past Records"])
+# --- Session state navigation ---
+if "page" not in st.session_state:
+    st.session_state.page = "home"
 
-# --- Home Page ---
-if menu == "🏠 Home":
+def goto(page):
+    st.session_state.page = page
+    st.experimental_rerun()
+
+# --- Load all records once ---
+records = sheet.get_all_records()
+df = pd.DataFrame(records) if records else pd.DataFrame(
+    columns=["timestamp", "mood", "thank1_who", "thank1_for",
+             "thank2_who", "thank2_for", "thank3_who", "thank3_for", "thoughts"]
+)
+
+# --- Helper: get unique "thank who" suggestions ---
+def get_thank_suggestions():
+    names = pd.concat([
+        df["thank1_who"], df["thank2_who"], df["thank3_who"]
+    ]).dropna().unique().tolist()
+    return sorted([n for n in names if n])
+
+# --- HOME PAGE ---
+if st.session_state.page == "home":
     st.title("🪶 Habit Thankful Journal")
-    st.write("Welcome to your gratitude space 🌿")
-    st.markdown("""
-    ### Choose an option from the sidebar:
-    1️⃣ **Create/Edit Today's Journal** – write or update your reflections for today (or within the past 7 days).  
-    2️⃣ **Read Past Records** – browse your previous gratitude entries stored in Google Sheets.  
-    ---
-    Take a moment each day to reflect on what you're thankful for 🌞
-    """)
+    st.write("Welcome to your daily gratitude and reflection space 🌿")
 
-# --- Journal Entry Page ---
-elif menu == "✍️ Create/Edit Today's Journal":
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("✍️ Write / Edit Journal", use_container_width=True):
+            goto("journal")
+    with col2:
+        if st.button("📖 Read & Mood Stats", use_container_width=True):
+            goto("stats")
+
+    st.markdown("---")
+    st.write("Reflect daily. Be thankful. Grow mindfully 🌞")
+
+# --- JOURNAL PAGE ---
+elif st.session_state.page == "journal":
     st.title("✍️ Create or Edit Journal Entry")
-    st.write("Take a moment to slow down and reflect ✨")
 
     today = date.today()
     min_date = today - timedelta(days=7)
@@ -46,78 +67,91 @@ elif menu == "✍️ Create/Edit Today's Journal":
         max_value=today
     )
 
-    # --- Load existing entry if available ---
-    records = sheet.get_all_records()
-    record_map = {r["timestamp"].split(" ")[0]: r for r in records}  # map by date part
+    mood_list = ["😊 Happy", "😐 Neutral", "😞 Sad", "🤩 Excited", "😔 Tired"]
 
-    existing = record_map.get(str(entry_date))
-    if existing:
-        st.info(f"📖 Found an existing entry for {entry_date} — you can edit it below.")
-        mood_default = existing["mood"]
-        thank1_who_default = existing["thank1_who"]
-        thank1_for_default = existing["thank1_for"]
-        thank2_who_default = existing["thank2_who"]
-        thank2_for_default = existing["thank2_for"]
-        thank3_who_default = existing["thank3_who"]
-        thank3_for_default = existing["thank3_for"]
-        thoughts_default = existing["thoughts"]
-    else:
-        mood_default = "😊 Happy"
-        thank1_who_default = ""
-        thank1_for_default = ""
-        thank2_who_default = ""
-        thank2_for_default = ""
-        thank3_who_default = ""
-        thank3_for_default = ""
-        thoughts_default = ""
+    # Try loading existing entry
+    df["date_only"] = df["timestamp"].apply(lambda x: str(x).split(" ")[0] if x else "")
+    existing = df.loc[df["date_only"] == str(entry_date)]
+    existing = existing.iloc[0].to_dict() if not existing.empty else {}
 
-    mood = st.selectbox("Mood", ["😊 Happy", "😐 Neutral", "😞 Sad", "🤩 Excited", "😔 Tired"], index=["😊 Happy", "😐 Neutral", "😞 Sad", "🤩 Excited", "😔 Tired"].index(mood_default))
-    thank1_who = st.text_input("I thank (1):", value=thank1_who_default, placeholder="Who are you thankful for?")
-    thank1_for = st.text_input("for (1):", value=thank1_for_default, placeholder="What did they do?")
+    thank_suggestions = get_thank_suggestions()
 
-    thank2_who = st.text_input("I thank (2):", value=thank2_who_default, placeholder="Who else?")
-    thank2_for = st.text_input("for (2):", value=thank2_for_default, placeholder="What did they do?")
+    mood = st.selectbox("Mood", mood_list,
+                        index=mood_list.index(existing.get("mood", "😊 Happy")) if existing else 0)
 
-    thank3_who = st.text_input("I thank (3):", value=thank3_who_default, placeholder="Another person or thing?")
-    thank3_for = st.text_input("for (3):", value=thank3_for_default, placeholder="What did they do?")
+    thank1_who = st.selectbox("I thank (1):", options=[""] + thank_suggestions,
+                              index=([""] + thank_suggestions).index(existing.get("thank1_who", ""))
+                              if existing.get("thank1_who", "") in thank_suggestions else 0)
+    thank1_for = st.text_input("for (1):", value=existing.get("thank1_for", ""))
 
-    thoughts = st.text_area("My thoughts and journey today...", value=thoughts_default, height=200)
+    thank2_who = st.selectbox("I thank (2):", options=[""] + thank_suggestions,
+                              index=([""] + thank_suggestions).index(existing.get("thank2_who", ""))
+                              if existing.get("thank2_who", "") in thank_suggestions else 0)
+    thank2_for = st.text_input("for (2):", value=existing.get("thank2_for", ""))
 
-    # --- Save / Update entry ---
+    thank3_who = st.selectbox("I thank (3):", options=[""] + thank_suggestions,
+                              index=([""] + thank_suggestions).index(existing.get("thank3_who", ""))
+                              if existing.get("thank3_who", "") in thank_suggestions else 0)
+    thank3_for = st.text_input("for (3):", value=existing.get("thank3_for", ""))
+
+    thoughts = st.text_area("My thoughts and journey today...",
+                            value=existing.get("thoughts", ""), height=200)
+
     if st.button("💾 Save to Google Sheet"):
         timestamp = f"{entry_date} {datetime.now().strftime('%H:%M')}"
         row_data = [
-            timestamp,
-            mood,
+            timestamp, mood,
             thank1_who, thank1_for,
             thank2_who, thank2_for,
             thank3_who, thank3_for,
             thoughts
         ]
-
-        if existing:
-            # Find row number to update (headers are row 1)
-            row_index = records.index(existing) + 2
-            sheet.update(f"A{row_index}:I{row_index}", [row_data])
-            st.success(f"✅ Updated entry for {entry_date}!")
-        else:
+        if not existing:
             sheet.append_row(row_data)
             st.success(f"✅ New entry saved for {entry_date}!")
+        else:
+            row_index = df.index[df["date_only"] == str(entry_date)][0] + 2
+            sheet.update(f"A{row_index}:I{row_index}", [row_data])
+            st.success(f"✅ Updated entry for {entry_date}!")
 
-# --- Read Records Page ---
-elif menu == "📖 Read Past Records":
-    st.title("📖 Read Past Journal Entries")
+    if st.button("🏠 Back to Home"):
+        goto("home")
 
-    records = sheet.get_all_records()
-    if not records:
-        st.info("No entries found yet 🌱")
+# --- STATS PAGE ---
+elif st.session_state.page == "stats":
+    st.title("📊 Mood & Gratitude Insights")
+
+    if df.empty:
+        st.info("No data yet 🌱 Please write some journal entries first.")
     else:
-        for r in records[::-1]:  # newest first
-            st.markdown(f"""
-            **📅 {r['timestamp']}** | {r['mood']}  
-            🪶 1. I thank *{r['thank1_who']}* for *{r['thank1_for']}*  
-            🪶 2. I thank *{r['thank2_who']}* for *{r['thank2_for']}*  
-            🪶 3. I thank *{r['thank3_who']}* for *{r['thank3_for']}*  
-            > {r['thoughts']}
-            ---
-            """)
+        # Filter by date
+        df["timestamp_dt"] = pd.to_datetime(df["timestamp"], errors="coerce")
+        default_start = date.today() - timedelta(days=30)
+        date_range = st.date_input(
+            "📅 Select date range:",
+            value=(default_start, date.today())
+        )
+
+        start_date, end_date = date_range
+        mask = (df["timestamp_dt"].dt.date >= start_date) & (df["timestamp_dt"].dt.date <= end_date)
+        filtered = df.loc[mask]
+
+        st.subheader("😊 Mood trend over time")
+        if not filtered.empty:
+            mood_count = filtered.groupby("mood").size().reset_index(name="count")
+            st.bar_chart(mood_count.set_index("mood"))
+        else:
+            st.write("No data for this period.")
+
+        st.subheader("🙌 Most thanked people")
+        people = pd.concat([
+            filtered["thank1_who"], filtered["thank2_who"], filtered["thank3_who"]
+        ]).dropna()
+        if not people.empty:
+            top_people = people.value_counts().head(10)
+            st.bar_chart(top_people)
+        else:
+            st.write("No people data for this period.")
+
+    if st.button("🏠 Back to Home"):
+        goto("home")
