@@ -139,14 +139,13 @@ elif st.session_state.page == "journal":
         new_val = st.text_area(f"Thought {i+1}", value=val, height=100, key=f"thought_{i}")
         new_thoughts.append(new_val)
 
-    # Add another thought
-    if st.button("➕ Add another thought"):
-        st.session_state.thought_fields.append("")
-        try:
-    		st.rerun()
-		except Exception:
-    		st.experimental_rerun()
-
+# Add another thought
+if st.button("➕ Add another thought"):
+    st.session_state.thought_fields.append("")
+    try:
+        st.rerun()
+    except Exception:
+        st.experimental_rerun()
     # --- Save button ---
     if st.button("💾 Save to Google Sheet"):
         timestamp = f"{entry_date} {datetime.now().strftime('%H:%M')}"
