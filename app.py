@@ -46,22 +46,47 @@ elif menu == "✍️ Create/Edit Today's Journal":
         max_value=today
     )
 
-    mood = st.selectbox("Mood", ["😊 Happy", "😐 Neutral", "😞 Sad", "🤩 Excited", "😔 Tired"])
+    # --- Load existing entry if available ---
+    records = sheet.get_all_records()
+    record_map = {r["timestamp"].split(" ")[0]: r for r in records}  # map by date part
 
-    thank1_who = st.text_input("I thank (1):", placeholder="Who are you thankful for?")
-    thank1_for = st.text_input("for (1):", placeholder="What did they do?")
+    existing = record_map.get(str(entry_date))
+    if existing:
+        st.info(f"📖 Found an existing entry for {entry_date} — you can edit it below.")
+        mood_default = existing["mood"]
+        thank1_who_default = existing["thank1_who"]
+        thank1_for_default = existing["thank1_for"]
+        thank2_who_default = existing["thank2_who"]
+        thank2_for_default = existing["thank2_for"]
+        thank3_who_default = existing["thank3_who"]
+        thank3_for_default = existing["thank3_for"]
+        thoughts_default = existing["thoughts"]
+    else:
+        mood_default = "😊 Happy"
+        thank1_who_default = ""
+        thank1_for_default = ""
+        thank2_who_default = ""
+        thank2_for_default = ""
+        thank3_who_default = ""
+        thank3_for_default = ""
+        thoughts_default = ""
 
-    thank2_who = st.text_input("I thank (2):", placeholder="Who else?")
-    thank2_for = st.text_input("for (2):", placeholder="What did they do?")
+    mood = st.selectbox("Mood", ["😊 Happy", "😐 Neutral", "😞 Sad", "🤩 Excited", "😔 Tired"], index=["😊 Happy", "😐 Neutral", "😞 Sad", "🤩 Excited", "😔 Tired"].index(mood_default))
+    thank1_who = st.text_input("I thank (1):", value=thank1_who_default, placeholder="Who are you thankful for?")
+    thank1_for = st.text_input("for (1):", value=thank1_for_default, placeholder="What did they do?")
 
-    thank3_who = st.text_input("I thank (3):", placeholder="Another person or thing?")
-    thank3_for = st.text_input("for (3):", placeholder="What did they do?")
+    thank2_who = st.text_input("I thank (2):", value=thank2_who_default, placeholder="Who else?")
+    thank2_for = st.text_input("for (2):", value=thank2_for_default, placeholder="What did they do?")
 
-    thoughts = st.text_area("My thoughts and journey today...", height=200)
+    thank3_who = st.text_input("I thank (3):", value=thank3_who_default, placeholder="Another person or thing?")
+    thank3_for = st.text_input("for (3):", value=thank3_for_default, placeholder="What did they do?")
 
+    thoughts = st.text_area("My thoughts and journey today...", value=thoughts_default, height=200)
+
+    # --- Save / Update entry ---
     if st.button("💾 Save to Google Sheet"):
         timestamp = f"{entry_date} {datetime.now().strftime('%H:%M')}"
-        row = [
+        row_data = [
             timestamp,
             mood,
             thank1_who, thank1_for,
@@ -69,8 +94,15 @@ elif menu == "✍️ Create/Edit Today's Journal":
             thank3_who, thank3_for,
             thoughts
         ]
-        sheet.append_row(row)
-        st.success(f"✅ Entry saved for {entry_date}!")
+
+        if existing:
+            # Find row number to update (headers are row 1)
+            row_index = records.index(existing) + 2
+            sheet.update(f"A{row_index}:I{row_index}", [row_data])
+            st.success(f"✅ Updated entry for {entry_date}!")
+        else:
+            sheet.append_row(row_data)
+            st.success(f"✅ New entry saved for {entry_date}!")
 
 # --- Read Records Page ---
 elif menu == "📖 Read Past Records":
