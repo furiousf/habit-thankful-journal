@@ -337,36 +337,52 @@ elif st.session_state.page == "stats":
     if st.button("🏠 Back to Home"): goto("home")
 
 # ============================================================
-#  HISTORY PAGE (split view)
+#  HISTORY PAGE (Journal only)
 # ============================================================
 elif st.session_state.page == "history":
     st.title("📜 Journal History")
 
-    if df_entries.empty and df_thoughts.empty:
-        st.info("No data yet 🌱 Write your first gratitude entry.")
+    if df_entries.empty:
+        st.info("No journal entries yet 🌱 Write your first one in the Journal page.")
     else:
-        tab1 = st.tabs(["🙏 Thankful History"])
+        st.subheader("📔 My Journal Records")
 
-        # -----------------------------
-        # 🙏 THANKFUL HISTORY TAB
-        # -----------------------------
-        with tab1:
-            if df_entries.empty:
-                st.info("No thankful entries yet.")
-            else:
-                df_display = df_entries.copy()
-                df_display["Date"] = pd.to_datetime(df_display["timestamp"], errors="coerce").dt.date
+        df_journal = df_entries.copy()
+        df_journal["Date"] = pd.to_datetime(df_journal["timestamp"], errors="coerce").dt.date
 
-                df_display = df_display[[
-                    "Date","mood","thank1_who","thank1_for",
-                    "thank2_who","thank2_for",
-                    "thank3_who","thank3_for"
-                ]].sort_values("Date", ascending=False)
+        # Ensure 'journal' column exists (for backward compatibility)
+        if "journal" not in df_journal.columns:
+            df_journal["journal"] = ""
 
-                st.dataframe(df_display, use_container_width=True, height=500)
-                st.caption("🕒 Thankful records (latest first).  ‘ThoughtsCount’ shows how many reflections you wrote that day.")
+        df_journal = df_journal[["Date", "mood", "journal"]].sort_values("Date", ascending=False)
 
-    
+        # --- Filters ---
+        col1, col2 = st.columns([1, 2])
+        with col1:
+            date_filter = st.date_input("📅 Filter by date", value=None)
+        with col2:
+            keyword = st.text_input("🔍 Search keyword in journal", placeholder="e.g. happy, grateful, family...")
+
+        df_view = df_journal.copy()
+        if date_filter:
+            df_view = df_view[df_view["Date"] == date_filter]
+        if keyword:
+            df_view = df_view[df_view["journal"].str.contains(keyword, case=False, na=False)]
+
+        if df_view.empty:
+            st.info("No journal entries match your filters.")
+        else:
+            for _, row in df_view.iterrows():
+                st.markdown(
+                    f"""
+                    **📅 {row['Date']} | {row['mood']}**  
+                    <div style="background:#f9f9f9; border-radius:8px; padding:10px; margin:6px 0;">
+                    {row['journal'] if row['journal'] else '_No journal text_'}
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+            st.caption("🕒 Newest first — showing your daily reflections.")
 
     if st.button("🏠 Back to Home"):
         goto("home")
