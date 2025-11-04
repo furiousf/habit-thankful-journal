@@ -58,7 +58,6 @@ def get_thank_suggestions():
 
 # --- Sidebar navigation ---
 st.sidebar.title("🪶 Habit Thankful Journal")
-
 menu = st.sidebar.radio(
     "Navigate",
     [
@@ -80,6 +79,26 @@ elif menu == "🙏 Thankful History":
     st.session_state.page = "thankful_history"
 elif menu == "📜 Journal History":
     st.session_state.page = "history"
+
+# =========================
+# Start a NEW ladder here ↓
+# =========================
+
+# ============================================================
+#  JOURNAL PAGE (with long Journal + multiple thoughts)
+# ============================================================
+if st.session_state.page == "journal":   # ← was `elif`
+    ...
+elif st.session_state.page == "thoughts":
+    ...
+elif st.session_state.page == "stats":
+    ...
+elif st.session_state.page == "thankful_history":
+    ...
+elif st.session_state.page == "history":
+    ...
+else:
+    st.info("Select a page from the sidebar.")
 
 # ============================================================
 #  JOURNAL PAGE (with long Journal + multiple thoughts)
