@@ -144,7 +144,7 @@ elif st.session_state.page == "journal":
         st.session_state.thought_fields.append("")
         try:
     		st.rerun()
-	except Exception:
+		except Exception:
     		st.experimental_rerun()
 
     # --- Save button ---
