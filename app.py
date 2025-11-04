@@ -66,7 +66,7 @@ menu = st.sidebar.radio(
         "✍️ Journal",
         "🧠 Thoughts Explorer",
         "📊 Stats",
-        "📜 History"
+        "📜 Journal History"
     ]
 )
 
@@ -78,7 +78,7 @@ elif menu == "🧠 Thoughts Explorer":
     st.session_state.page = "thoughts"
 elif menu == "📊 Stats":
     st.session_state.page = "stats"
-elif menu == "📜 History":
+elif menu == "📜 Journal History":
     st.session_state.page = "history"
 
 
@@ -96,8 +96,9 @@ if st.session_state.page == "home":
     st.markdown("---")
     st.write("Reflect daily. Be thankful. Grow mindfully 🌞")
 
+
 # ============================================================
-#  JOURNAL PAGE (entry + multiple thoughts)
+#  JOURNAL PAGE (with long Journal + multiple thoughts)
 # ============================================================
 elif st.session_state.page == "journal":
     st.title("✍️ Create or Edit Journal Entry")
@@ -133,44 +134,69 @@ elif st.session_state.page == "journal":
                               if existing.get("thank3_who","") in thank_suggestions else 0)
     thank3_for = st.text_input("for (3):", value=existing.get("thank3_for",""))
 
+    # --- Long Journal section ---
+    st.markdown("### 📖 My Journal for Today")
+    journal_text = st.text_area(
+        "Write your daily reflection:",
+        value=existing.get("journal", ""),
+        height=250,
+        placeholder="Write your main reflection or summary for today..."
+    )
+
     # --- Thoughts section ---
-    st.markdown("### 💭 Thoughts for this day")
+    st.markdown("### 💭 Additional Thoughts")
     day_thoughts = df_thoughts[df_thoughts["date"] == str(entry_date)]
-    for idx, row in day_thoughts.iterrows():
-        st.text_area(f"Thought {idx+1}", value=row["thought"], height=100, disabled=True)
+    if not day_thoughts.empty:
+        st.write(f"Existing thoughts for {entry_date}:")
+        for idx, row in day_thoughts.iterrows():
+            st.text_area(f"Thought {idx+1}", value=row["thought"], height=80, disabled=True)
 
     if "thought_fields" not in st.session_state:
         st.session_state.thought_fields = [""]
 
     new_thoughts = []
     for i, val in enumerate(st.session_state.thought_fields):
-        new_val = st.text_area(f"Add new thought {i+1}", value=val, height=100, key=f"new_thought_{i}")
+        new_val = st.text_area(f"Add new thought {i+1}", value=val, height=80, key=f"new_thought_{i}")
         new_thoughts.append(new_val)
 
     if st.button("➕ Add another thought"):
         st.session_state.thought_fields.append("")
-        try:
-            st.rerun()
-        except Exception:
-            st.experimental_rerun()
+        st.experimental_rerun()
 
     # --- Save button ---
-    if st.button("💾 Save to Google Sheet"):
+    if st.button("💾 Save Journal & Thoughts"):
         timestamp = f"{entry_date} {datetime.now().strftime('%H:%M')}"
-        row = [timestamp,mood,thank1_who,thank1_for,
-               thank2_who,thank2_for,thank3_who,thank3_for]
+        row = [
+            timestamp, mood,
+            thank1_who, thank1_for,
+            thank2_who, thank2_for,
+            thank3_who, thank3_for,
+            journal_text.strip()
+        ]
+
+        # Save or update main journal entry
         if not existing:
             journal_sheet.append_row(row)
         else:
             row_index = df_entries.index[df_entries["date_only"]==str(entry_date)][0]+2
-            journal_sheet.update(f"A{row_index}:H{row_index}", [row])
+            journal_sheet.update(f"A{row_index}:I{row_index}", [row])
 
+        # Save multiple thoughts
         for t in new_thoughts:
             if t.strip():
-                thought_sheet.append_row([str(entry_date), t.strip(), datetime.now().strftime("%Y-%m-%d %H:%M")])
-        st.success(f"✅ Entry and new thoughts saved for {entry_date}!")
+                thought_sheet.append_row([
+                    str(entry_date),
+                    t.strip(),
+                    datetime.now().strftime("%Y-%m-%d %H:%M")
+                ])
 
-    if st.button("🏠 Back to Home"): goto("home")
+        st.success(f"✅ Journal and thoughts saved for {entry_date}!")
+        st.session_state.thought_fields = [""]
+        st.experimental_rerun()
+
+    if st.button("🏠 Back to Home"):
+        goto("home")
+
 # ============================================================
 #  THOUGHTS EXPLORER PAGE
 # ============================================================
@@ -243,7 +269,7 @@ elif st.session_state.page == "thoughts":
 
     if st.button("🏠 Back to Home"):
         goto("home")
-        
+
 # ============================================================
 #  STATS PAGE
 # ============================================================
@@ -319,7 +345,7 @@ elif st.session_state.page == "history":
     if df_entries.empty and df_thoughts.empty:
         st.info("No data yet 🌱 Write your first gratitude entry.")
     else:
-        tab1, tab2 = st.tabs(["🙏 Thankful History", "💭 Thoughts History"])
+        tab1 = st.tabs(["🙏 Thankful History"])
 
         # -----------------------------
         # 🙏 THANKFUL HISTORY TAB
@@ -345,37 +371,7 @@ elif st.session_state.page == "history":
                 st.dataframe(df_display, use_container_width=True, height=500)
                 st.caption("🕒 Thankful records (latest first).  ‘ThoughtsCount’ shows how many reflections you wrote that day.")
 
-        # -----------------------------
-        # 💭 THOUGHTS HISTORY TAB
-        # -----------------------------
-        with tab2:
-            if df_thoughts.empty:
-                st.info("No thoughts recorded yet.")
-            else:
-                st.subheader("🧠 All Thoughts")
-
-                # Filter options
-                col1, col2 = st.columns([1, 2])
-                with col1:
-                    date_filter = st.date_input("📅 Filter by date (optional)", value=None)
-                with col2:
-                    keyword = st.text_input("🔍 Search keyword (optional)")
-
-                df_thoughts_view = df_thoughts.copy()
-                df_thoughts_view["date_dt"] = pd.to_datetime(df_thoughts_view["date"], errors="coerce")
-
-                # Apply filters
-                if date_filter:
-                    df_thoughts_view = df_thoughts_view[df_thoughts_view["date_dt"].dt.date == date_filter]
-                if keyword:
-                    df_thoughts_view = df_thoughts_view[df_thoughts_view["thought"].str.contains(keyword, case=False, na=False)]
-
-                df_thoughts_view = df_thoughts_view.sort_values("date_dt", ascending=False)
-                df_thoughts_view.rename(columns={"date": "Date", "thought": "Thought", "created_at": "Created"}, inplace=True)
-
-                st.dataframe(df_thoughts_view[["Date", "Thought", "Created"]],
-                             use_container_width=True, height=500)
-                st.caption("💭 Filter or search through your reflections.")
+    
 
     if st.button("🏠 Back to Home"):
         goto("home")
