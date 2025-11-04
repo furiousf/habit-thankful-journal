@@ -78,8 +78,11 @@ st.sidebar.title("🪶 Habit Thankful Journal")
 menu = st.sidebar.radio("Navigate", ["🏠 Home","✍️ Journal","📊 Stats","📜 History"])
 if menu == "🏠 Home": st.session_state.page = "home"
 elif menu == "✍️ Journal": st.session_state.page = "journal"
+elif menu == "🧠 Thoughts Explorer":
+    st.session_state.page = "thoughts"
 elif menu == "📊 Stats": st.session_state.page = "stats"
 elif menu == "📜 History": st.session_state.page = "history"
+
 
 # ============================================================
 #  HOME PAGE
@@ -172,6 +175,38 @@ elif st.session_state.page == "journal":
     if st.button("🏠 Back to Home"): goto("home")
 
 # ============================================================
+#  THOUGHTS EXPLORER PAGE
+# ============================================================
+elif st.session_state.page == "thoughts":
+    st.title("🧠 All Thoughts Explorer")
+
+    if df_thoughts.empty:
+        st.info("No thoughts yet 🌱")
+    else:
+        st.write("Search and explore all your reflections.")
+
+        col1, col2 = st.columns([1,2])
+        with col1:
+            date_filter = st.date_input("📅 Filter by date", value=None)
+        with col2:
+            keyword = st.text_input("🔍 Search by keyword")
+
+        df_view = df_thoughts.copy()
+        df_view["date_dt"] = pd.to_datetime(df_view["date"], errors="coerce")
+
+        if date_filter:
+            df_view = df_view[df_view["date_dt"].dt.date == date_filter]
+        if keyword:
+            df_view = df_view[df_view["thought"].str.contains(keyword, case=False, na=False)]
+
+        df_view = df_view.sort_values("date_dt", ascending=False)
+        df_view.rename(columns={"date": "Date", "thought": "Thought", "created_at": "Created"}, inplace=True)
+        st.dataframe(df_view[["Date","Thought","Created"]], use_container_width=True, height=600)
+
+    if st.button("🏠 Back to Home"):
+        goto("home")
+
+# ============================================================
 #  STATS PAGE
 # ============================================================
 elif st.session_state.page == "stats":
@@ -238,30 +273,71 @@ elif st.session_state.page == "stats":
     if st.button("🏠 Back to Home"): goto("home")
 
 # ============================================================
-#  HISTORY PAGE
+#  HISTORY PAGE (split view)
 # ============================================================
 elif st.session_state.page == "history":
     st.title("📜 Journal History")
 
-    if df_entries.empty:
+    if df_entries.empty and df_thoughts.empty:
         st.info("No data yet 🌱 Write your first gratitude entry.")
     else:
-        df_display = df_entries.copy()
-        df_display["Date"] = pd.to_datetime(df_display["timestamp"], errors="coerce").dt.date
+        tab1, tab2 = st.tabs(["🙏 Thankful History", "💭 Thoughts History"])
 
-        # Merge with number of thoughts
-        thought_counts = df_thoughts.groupby("date").size().reset_index(name="ThoughtsCount")
-        df_display = pd.merge(df_display, thought_counts, how="left",
-                              left_on="Date", right_on="date").fillna({"ThoughtsCount":0})
+        # -----------------------------
+        # 🙏 THANKFUL HISTORY TAB
+        # -----------------------------
+        with tab1:
+            if df_entries.empty:
+                st.info("No thankful entries yet.")
+            else:
+                df_display = df_entries.copy()
+                df_display["Date"] = pd.to_datetime(df_display["timestamp"], errors="coerce").dt.date
 
-        df_display = df_display[[
-            "Date","mood","ThoughtsCount",
-            "thank1_who","thank1_for",
-            "thank2_who","thank2_for",
-            "thank3_who","thank3_for"
-        ]].sort_values("Date", ascending=False)
+                # Merge thought count for reference
+                thought_counts = df_thoughts.groupby("date").size().reset_index(name="ThoughtsCount")
+                df_display = pd.merge(df_display, thought_counts, how="left",
+                                      left_on="Date", right_on="date").fillna({"ThoughtsCount": 0})
 
-        st.dataframe(df_display, use_container_width=True, height=500)
-        st.caption("🕒 Showing all journal records (latest first).")
+                df_display = df_display[[
+                    "Date","mood","thank1_who","thank1_for",
+                    "thank2_who","thank2_for",
+                    "thank3_who","thank3_for","ThoughtsCount"
+                ]].sort_values("Date", ascending=False)
 
-    if st.button("🏠 Back to Home"): goto("home")
+                st.dataframe(df_display, use_container_width=True, height=500)
+                st.caption("🕒 Thankful records (latest first).  ‘ThoughtsCount’ shows how many reflections you wrote that day.")
+
+        # -----------------------------
+        # 💭 THOUGHTS HISTORY TAB
+        # -----------------------------
+        with tab2:
+            if df_thoughts.empty:
+                st.info("No thoughts recorded yet.")
+            else:
+                st.subheader("🧠 All Thoughts")
+
+                # Filter options
+                col1, col2 = st.columns([1, 2])
+                with col1:
+                    date_filter = st.date_input("📅 Filter by date (optional)", value=None)
+                with col2:
+                    keyword = st.text_input("🔍 Search keyword (optional)")
+
+                df_thoughts_view = df_thoughts.copy()
+                df_thoughts_view["date_dt"] = pd.to_datetime(df_thoughts_view["date"], errors="coerce")
+
+                # Apply filters
+                if date_filter:
+                    df_thoughts_view = df_thoughts_view[df_thoughts_view["date_dt"].dt.date == date_filter]
+                if keyword:
+                    df_thoughts_view = df_thoughts_view[df_thoughts_view["thought"].str.contains(keyword, case=False, na=False)]
+
+                df_thoughts_view = df_thoughts_view.sort_values("date_dt", ascending=False)
+                df_thoughts_view.rename(columns={"date": "Date", "thought": "Thought", "created_at": "Created"}, inplace=True)
+
+                st.dataframe(df_thoughts_view[["Date", "Thought", "Created"]],
+                             use_container_width=True, height=500)
+                st.caption("💭 Filter or search through your reflections.")
+
+    if st.button("🏠 Back to Home"):
+        goto("home")
