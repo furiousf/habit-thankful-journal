@@ -22,7 +22,11 @@ if "page" not in st.session_state:
 
 def goto(page):
     st.session_state.page = page
-    st.experimental_rerun()
+    try:
+        st.rerun()
+    except Exception:
+        # fallback for older Streamlit versions
+        st.experimental_rerun()
 
 # --- Load all records once ---
 records = sheet.get_all_records()
