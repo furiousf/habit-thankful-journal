@@ -1,94 +1,229 @@
 import streamlit as st
-import gspread
-from google.oauth2.service_account import Credentials
-from datetime import datetime, date, timedelta
 import pandas as pd
 import matplotlib.pyplot as plt
+from datetime import date, datetime, timedelta
+from supabase import create_client, Client
+from urllib.parse import urlencode
 
-# --- Page setup ---
+# ------------------------------------------------------------
+# Config
+# ------------------------------------------------------------
 st.set_page_config(
     page_title="Habit Thankful Journal",
     page_icon="🪶",
     layout="centered",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded",
 )
 
-# --- Google Sheet setup ---
-SCOPE = ["https://www.googleapis.com/auth/spreadsheets"]
-CREDS = Credentials.from_service_account_info(st.secrets["google_service_account"], scopes=SCOPE)
-client = gspread.authorize(CREDS)
-SHEET_URL = "https://docs.google.com/spreadsheets/d/15hNZ96Lh5GGo0bQNl_XadE7B3Ii84XFBs7KH4Q03jLs/edit?usp=sharing"
+# Supabase client
+SUPABASE_URL = st.secrets["supabase"]["url"]
+SUPABASE_KEY = st.secrets["supabase"]["anon_key"]
+REDIRECT_URL = st.secrets["supabase"]["redirect_url"]
+PROVIDERS = st.secrets["supabase"].get("providers", ["google"])
 
-journal_sheet = client.open_by_url(SHEET_URL).sheet1
-thought_sheet = client.open_by_url(SHEET_URL).worksheet("JournalThoughts")
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# --- Session setup ---
-if "page" not in st.session_state:
-    st.session_state.page = "stats"
+# ------------------------------------------------------------
+# Auth helpers
+# ------------------------------------------------------------
+def build_oauth_url(provider: str) -> str:
+    # Construct OAuth URL (PKCE). Supabase-py returns an object in newer versions,
+    # but building the URL manually is robust and explicit.
+    params = {
+        "provider": provider,
+        "redirect_to": REDIRECT_URL,
+    }
+    return f"{SUPABASE_URL}/auth/v1/authorize?{urlencode(params)}"
 
-def goto(page):
-    st.session_state.page = page
+def exchange_code_for_session():
+    # Handle OAuth code after redirect back from provider
+    code = st.query_params.get("code", None)
+    if not code:
+        return None
     try:
-        st.rerun()
+        res = supabase.auth.exchange_code_for_session({"auth_code": code})
+        # Persist session user
+        if res and res.user:
+            st.session_state["sb_user"] = res.user
+            # Clear code from URL (nicer UX)
+            st.query_params.clear()
+            return res.user
     except Exception:
-        st.experimental_rerun()
+        pass
+    return None
 
-# --- Load data ---
-entries = journal_sheet.get_all_records()
-df_entries = pd.DataFrame(entries) if entries else pd.DataFrame(
-    columns=["timestamp","mood","thank1_who","thank1_for",
-             "thank2_who","thank2_for","thank3_who","thank3_for"]
-)
+def get_user():
+    # 1) Already signed in this session?
+    if "sb_user" in st.session_state and st.session_state["sb_user"]:
+        return st.session_state["sb_user"]
+    # 2) Did we just come back from OAuth provider?
+    user = exchange_code_for_session()
+    if user:
+        return user
+    # 3) Not logged in
+    return None
 
-thoughts = thought_sheet.get_all_records()
-df_thoughts = pd.DataFrame(thoughts) if thoughts else pd.DataFrame(
-    columns=["date","thought","created_at"]
-)
+def require_auth():
+    user = get_user()
+    if user:
+        return user
+    st.title("🪶 Habit Thankful Journal")
+    st.subheader("Sign in to continue")
+    cols = st.columns(len(PROVIDERS))
+    for i, prov in enumerate(PROVIDERS):
+        with cols[i]:
+            if st.button(f"Sign in with {prov.title()}", use_container_width=True):
+                st.link_button(
+                    f"Click here if not redirected",
+                    build_oauth_url(prov),
+                    use_container_width=True,
+                    type="primary",
+                )
+                st.stop()
+    st.stop()
 
-def get_thank_suggestions():
-    try:
-        names = pd.concat([
-            df_entries["thank1_who"], df_entries["thank2_who"], df_entries["thank3_who"]
-        ], ignore_index=True)
-        names = names.dropna().astype(str).str.strip()
-        names = names[names != ""]
-        return sorted(names.unique().tolist())
-    except Exception:
-        return []
+# ------------------------------------------------------------
+# Data helpers
+# ------------------------------------------------------------
+def load_entries(user_id: str) -> pd.DataFrame:
+    res = supabase.table("journal_entries").select("*").eq("user_id", user_id).execute()
+    rows = res.data or []
+    df = pd.DataFrame(rows)
+    if df.empty:
+        df = pd.DataFrame(columns=[
+            "id","user_id","date","mood","thank1_who","thank1_for",
+            "thank2_who","thank2_for","thank3_who","thank3_for","journal",
+            "inserted_at","updated_at"
+        ])
+    return df
 
-# --- Sidebar navigation ---
+def load_thoughts(user_id: str) -> pd.DataFrame:
+    res = supabase.table("thoughts").select("*").eq("user_id", user_id).execute()
+    rows = res.data or []
+    df = pd.DataFrame(rows)
+    if df.empty:
+        df = pd.DataFrame(columns=["id","user_id","date","thought","created_at"])
+    return df
+
+def get_thank_suggestions(df_entries: pd.DataFrame):
+    cols = ["thank1_who", "thank2_who", "thank3_who"]
+    names = pd.Series(dtype=str)
+    for c in cols:
+        if c in df_entries.columns:
+            names = pd.concat([names, df_entries[c].dropna().astype(str).str.strip()])
+    names = names[names != ""].unique().tolist()
+    return sorted(names)
+
+def upsert_journal(user_id: str, entry_date: date, payload: dict):
+    # upsert by (user_id, date)
+    payload = dict(payload)
+    payload["user_id"] = user_id
+    payload["date"] = str(entry_date)
+    supabase.table("journal_entries").upsert(payload, on_conflict="user_id,date").execute()
+
+def add_thought(user_id: str, thought_date: date, text: str):
+    supabase.table("thoughts").insert({
+        "user_id": user_id,
+        "date": str(thought_date),
+        "thought": text.strip()
+    }).execute()
+
+# ------------------------------------------------------------
+# UI: Sidebar Navigation
+# ------------------------------------------------------------
+user = require_auth()
+user_id = user.id
+
 st.sidebar.title("🪶 Habit Thankful Journal")
 menu = st.sidebar.radio(
     "Navigate",
     [
-        "🏠 Home Summary",
-        "✍️ Thankful Journal",
+        "🏠 Home (Stats)",
+        "✍️ Journal",
         "🧠 Thoughts Explorer",
         "🙏 Thankful History",
-        "📜 Journal History"
+        "📜 Journal History",
     ]
 )
 
-if menu == "🏠 Home Summary":
-    st.session_state.page = "stats"
-elif menu == "✍️ Thankful Journal":
-    st.session_state.page = "journal"
-elif menu == "🧠 Thoughts Explorer":
-    st.session_state.page = "thoughts"
-elif menu == "🙏 Thankful History":
-    st.session_state.page = "thankful_history"
-elif menu == "📜 Journal History":
-    st.session_state.page = "history"
+# Preload data for pages
+df_entries = load_entries(user_id)
+df_thoughts = load_thoughts(user_id)
 
-# =========================
-# Start a NEW ladder here ↓
-# =========================
+# ------------------------------------------------------------
+# 🏠 Home (Stats)
+# ------------------------------------------------------------
+if menu == "🏠 Home (Stats)":
+    st.title("🏠 Home Dashboard — Mood & Gratitude Insights")
 
+    if df_entries.empty:
+        st.info("No data yet 🌱 Create your first entry on the Journal page.")
+    else:
+        df_entries["date_dt"] = pd.to_datetime(df_entries["date"], errors="coerce")
 
-# ============================================================
-#  JOURNAL PAGE (with long Journal + multiple thoughts)
-# ============================================================
-if st.session_state.page == "journal":
+        # Quick filters
+        col1, col2, _ = st.columns([1, 1, 2])
+        quick = st.session_state.get("home_quick", None)
+        with col1:
+            if st.button("Last 7 Days"): st.session_state["home_quick"] = 7
+        with col2:
+            if st.button("Last 30 Days"): st.session_state["home_quick"] = 30
+
+        today = date.today()
+        if st.session_state.get("home_quick") == 7:
+            start, end = today - timedelta(days=7), today
+        elif st.session_state.get("home_quick") == 30:
+            start, end = today - timedelta(days=30), today
+        else:
+            default_start = today - timedelta(days=30)
+            start, end = st.date_input("Custom range", (default_start, today))
+
+        mask = (df_entries["date_dt"].dt.date >= start) & (df_entries["date_dt"].dt.date <= end)
+        filtered = df_entries.loc[mask]
+
+        chart_type = st.radio("Chart type", ["Bar", "Pie"], horizontal=True)
+
+        # Mood chart
+        st.subheader("😊 Mood distribution")
+        if not filtered.empty and "mood" in filtered.columns:
+            mood_count = filtered["mood"].value_counts()
+            if chart_type == "Bar":
+                st.bar_chart(mood_count, height=200)
+            else:
+                fig, ax = plt.subplots(figsize=(3,3))
+                ax.pie(mood_count.values, labels=mood_count.index, autopct="%1.0f%%", startangle=90)
+                ax.axis("equal")
+                st.pyplot(fig)
+        else:
+            st.write("No mood data for this period.")
+
+        # People thanked
+        st.subheader("🙌 Most thanked people")
+        who = pd.Series(dtype=str)
+        for col in ["thank1_who","thank2_who","thank3_who"]:
+            if col in filtered.columns:
+                who = pd.concat([who, filtered[col].dropna().astype(str).str.strip()])
+        who = who[who != ""]
+        if not who.empty:
+            top_people = who.value_counts().head(10)
+            if chart_type == "Bar":
+                st.bar_chart(top_people, height=200)
+            else:
+                fig, ax = plt.subplots(figsize=(3,3))
+                ax.pie(top_people.values, labels=top_people.index, autopct="%1.0f%%", startangle=90)
+                ax.axis("equal")
+                st.pyplot(fig)
+        else:
+            st.write("No people data for this period.")
+
+        # Thoughts count
+        st.subheader("💭 Thoughts written")
+        st.write(f"🧠 Total thoughts: **{len(df_thoughts)}**")
+
+# ------------------------------------------------------------
+# ✍️ Journal page (long journal + 3 thanks + thoughts)
+# ------------------------------------------------------------
+elif menu == "✍️ Journal":
     st.title("✍️ Create or Edit Journal Entry")
 
     today = date.today()
@@ -98,76 +233,44 @@ if st.session_state.page == "journal":
 
     mood_list = ["😊 Happy","😐 Neutral","😞 Sad","🤩 Excited","😔 Tired"]
 
-    # Load existing entry if exists
-    df_entries["date_only"] = df_entries["timestamp"].apply(lambda x:str(x).split(" ")[0] if x else "")
-    existing = df_entries.loc[df_entries["date_only"] == str(entry_date)]
-    existing = existing.iloc[0].to_dict() if not existing.empty else {}
+    # Existing
+    existing = df_entries[df_entries["date"] == str(entry_date)]
+    existing_row = existing.iloc[0].to_dict() if not existing.empty else {}
 
-    thank_suggestions = get_thank_suggestions()
+    thank_suggestions = get_thank_suggestions(df_entries)
+
     mood = st.selectbox("Mood", mood_list,
-                        index=mood_list.index(existing.get("mood","😊 Happy")) if existing else 0)
+                        index=mood_list.index(existing_row.get("mood","😊 Happy")) if existing_row else 0)
 
-    # --- Gratitude section ---
     st.markdown("### 🙏 Gratitude for Today")
-
-    # Gratitude #1
+    # Editable inputs (type freely) + show top suggestions as caption
     st.markdown("#### 🙏 Gratitude #1")
-    thank1_who = st.text_input(
-        "Who are you thankful for? (type or reuse suggestion)",
-        value=existing.get("thank1_who", "")
-    )
-    if thank_suggestions:
-        st.caption("💡 Suggested: " + ", ".join(thank_suggestions[:5]))
-    thank1_for = st.text_input(
-        "for (1):",
-        value=existing.get("thank1_for", ""),
-        placeholder="What did they do that you appreciate?"
-    )
+    thank1_who = st.text_input("Who are you thankful for? (type or reuse)", value=existing_row.get("thank1_who",""))
+    if thank_suggestions: st.caption("💡 Suggested: " + ", ".join(thank_suggestions[:5]))
+    thank1_for = st.text_input("for (1):", value=existing_row.get("thank1_for",""))
 
-    # Gratitude #2
     st.markdown("#### 🙏 Gratitude #2")
-    thank2_who = st.text_input(
-        "Who else are you thankful for?",
-        value=existing.get("thank2_who", "")
-    )
-    if thank_suggestions:
-        st.caption("💡 Suggested: " + ", ".join(thank_suggestions[:5]))
-    thank2_for = st.text_input(
-        "for (2):",
-        value=existing.get("thank2_for", ""),
-        placeholder="What did they do that you appreciate?"
-    )
+    thank2_who = st.text_input("Who else are you thankful for?", value=existing_row.get("thank2_who",""))
+    if thank_suggestions: st.caption("💡 Suggested: " + ", ".join(thank_suggestions[:5]))
+    thank2_for = st.text_input("for (2):", value=existing_row.get("thank2_for",""))
 
-    # Gratitude #3
     st.markdown("#### 🙏 Gratitude #3")
-    thank3_who = st.text_input(
-        "Anyone else you’re thankful for?",
-        value=existing.get("thank3_who", "")
-    )
-    if thank_suggestions:
-        st.caption("💡 Suggested: " + ", ".join(thank_suggestions[:5]))
-    thank3_for = st.text_input(
-        "for (3):",
-        value=existing.get("thank3_for", ""),
-        placeholder="What did they do that you appreciate?"
-    )
+    thank3_who = st.text_input("Anyone else you’re thankful for?", value=existing_row.get("thank3_who",""))
+    if thank_suggestions: st.caption("💡 Suggested: " + ", ".join(thank_suggestions[:5]))
+    thank3_for = st.text_input("for (3):", value=existing_row.get("thank3_for",""))
 
-    # --- Long Journal section ---
     st.markdown("### 📖 My Journal for Today")
-    journal_text = st.text_area(
-        "Write your daily reflection:",
-        value=existing.get("journal", ""),
-        height=250,
-        placeholder="Write your main reflection or summary for today..."
-    )
+    journal_text = st.text_area("Write your daily reflection:",
+                                value=existing_row.get("journal",""),
+                                height=250,
+                                placeholder="Write your main reflection or summary for today...")
 
-    # --- Thoughts section ---
     st.markdown("### 💭 Additional Thoughts")
     day_thoughts = df_thoughts[df_thoughts["date"] == str(entry_date)]
     if not day_thoughts.empty:
         st.write(f"Existing thoughts for {entry_date}:")
-        for idx, row in day_thoughts.iterrows():
-            st.text_area(f"Thought {idx+1}", value=row["thought"], height=80, disabled=True)
+        for i, r in day_thoughts.iterrows():
+            st.text_area(f"Thought {i+1}", value=r["thought"], height=80, disabled=True)
 
     if "thought_fields" not in st.session_state:
         st.session_state.thought_fields = [""]
@@ -179,299 +282,134 @@ if st.session_state.page == "journal":
 
     if st.button("➕ Add another thought"):
         st.session_state.thought_fields.append("")
-        st.experimental_rerun()
+        st.rerun()
 
-    # --- Save button ---
     if st.button("💾 Save Journal & Thoughts"):
-        timestamp = f"{entry_date} {datetime.now().strftime('%H:%M')}"
-        row = [
-            timestamp, mood,
-            thank1_who, thank1_for,
-            thank2_who, thank2_for,
-            thank3_who, thank3_for,
-            journal_text.strip()
-        ]
-
-        # Save or update main journal entry
-        if not existing:
-            journal_sheet.append_row(row)
-        else:
-            row_index = df_entries.index[df_entries["date_only"]==str(entry_date)][0]+2
-            journal_sheet.update(f"A{row_index}:I{row_index}", [row])
-
-        # Save multiple thoughts
+        upsert_journal(user_id, entry_date, {
+            "mood": mood,
+            "thank1_who": thank1_who, "thank1_for": thank1_for,
+            "thank2_who": thank2_who, "thank2_for": thank2_for,
+            "thank3_who": thank3_who, "thank3_for": thank3_for,
+            "journal": journal_text.strip()
+        })
         for t in new_thoughts:
-            if t.strip():
-                thought_sheet.append_row([
-                    str(entry_date),
-                    t.strip(),
-                    datetime.now().strftime("%Y-%m-%d %H:%M")
-                ])
-
-        st.success(f"✅ Journal and thoughts saved for {entry_date}!")
+            if t and t.strip():
+                add_thought(user_id, entry_date, t.strip())
         st.session_state.thought_fields = [""]
-        st.experimental_rerun()
+        st.success(f"✅ Saved entry for {entry_date}")
+        st.rerun()
 
-    if st.button("🏠 Back to Home"):
-        goto("stats")
-
-# ============================================================
-#  THOUGHTS EXPLORER PAGE
-# ============================================================
-elif st.session_state.page == "thoughts":
+# ------------------------------------------------------------
+# 🧠 Thoughts Explorer
+# ------------------------------------------------------------
+elif menu == "🧠 Thoughts Explorer":
     st.title("🧠 All Thoughts Explorer")
 
-    # --- Add new thought section ---
     st.markdown("### ✍️ Add a New Thought")
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        new_thought_date = st.date_input("📅 Date", value=date.today())
-    with col2:
-        add_now = st.checkbox("Use current time", value=True)
+    c1, c2 = st.columns([2,1])
+    with c1:
+        new_thought_date = st.date_input("📅 Date", value=date.today(), key="th_date")
+    with c2:
+        use_now = st.checkbox("Use current time", value=True, key="th_now")
 
-    new_thought = st.text_area(
-        "💭 Your Thought",
-        placeholder="Write what's on your mind...",
-        height=100,
-    )
+    new_thought = st.text_area("💭 Your Thought", height=100, key="th_text")
 
     if st.button("💾 Save Thought"):
-        if new_thought.strip():
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M") if add_now else ""
-            thought_sheet.append_row([
-                str(new_thought_date),
-                new_thought.strip(),
-                timestamp
-            ])
-            st.success("✅ New thought saved successfully!")
-            st.session_state["refresh_thoughts"] = True
+        if new_thought and new_thought.strip():
+            add_thought(user_id, new_thought_date, new_thought.strip())
+            st.success("✅ New thought saved!")
             st.rerun()
         else:
             st.warning("⚠️ Please write something before saving.")
 
     st.markdown("---")
 
-    # --- View all thoughts section ---
     if df_thoughts.empty:
-        st.info("No thoughts yet 🌱 Start by adding your first one above.")
+        st.info("No thoughts yet 🌱")
     else:
         st.subheader("🧠 All Recorded Thoughts")
-
-        col1, col2 = st.columns([1, 2])
-        with col1:
-            date_filter = st.date_input("📅 Filter by date", value=None)
-        with col2:
-            keyword = st.text_input("🔍 Search by keyword")
-
-        # Reload data if refreshed
-        if st.session_state.get("refresh_thoughts"):
-            thoughts = thought_sheet.get_all_records()
-            df_thoughts = pd.DataFrame(thoughts) if thoughts else pd.DataFrame(
-                columns=["date", "thought", "created_at"]
-            )
-            st.session_state["refresh_thoughts"] = False
+        c1, c2 = st.columns([1,2])
+        with c1:
+            df_thoughts["date_dt"] = pd.to_datetime(df_thoughts["date"], errors="coerce")
+            date_filter = st.date_input("📅 Filter by date", value=None, key="th_filter")
+        with c2:
+            keyword = st.text_input("🔍 Search by keyword", key="th_kw")
 
         df_view = df_thoughts.copy()
-        df_view["date_dt"] = pd.to_datetime(df_view["date"], errors="coerce")
-
         if date_filter:
             df_view = df_view[df_view["date_dt"].dt.date == date_filter]
         if keyword:
             df_view = df_view[df_view["thought"].str.contains(keyword, case=False, na=False)]
 
         df_view = df_view.sort_values("date_dt", ascending=False)
-        df_view.rename(columns={"date": "Date", "thought": "Thought", "created_at": "Created"}, inplace=True)
+        df_view.rename(columns={"date":"Date","thought":"Thought","created_at":"Created"}, inplace=True)
 
-        st.dataframe(df_view[["Date","Thought","Created"]],
-                     use_container_width=True, height=600)
+        st.dataframe(df_view[["Date","Thought","Created"]], use_container_width=True, height=600)
 
-    if st.button("🏠 Back to Home"):
-        goto("stats")
-
-# ============================================================
-#  STATS PAGE
-# ============================================================
-elif st.session_state.page == "stats":
-    st.title("🏠 Home Dashboard — Mood & Gratitude Insights")
-
-    if df_entries.empty:
-        st.info("No data yet 🌱 Please write some journal entries first.")
-    else:
-        df_entries["timestamp_dt"] = pd.to_datetime(df_entries["timestamp"], errors="coerce")
-        today = date.today()
-
-        col1, col2, _ = st.columns([1,1,2])
-        with col1:
-            if st.button("Last 7 Days"): st.session_state.selected_filter="7"
-        with col2:
-            if st.button("Last 30 Days"): st.session_state.selected_filter="30"
-
-        if st.session_state.get("selected_filter")=="7":
-            start_date=today-timedelta(days=7); end_date=today
-            st.info(f"📅 Showing data from **{start_date}** to **{end_date}** (Last 7 days)")
-        elif st.session_state.get("selected_filter")=="30":
-            start_date=today-timedelta(days=30); end_date=today
-            st.info(f"📅 Showing data from **{start_date}** to **{end_date}** (Last 30 days)")
-        else:
-            default_start=today-timedelta(days=30)
-            date_range=st.date_input("📅 Select date range:", value=(default_start,today))
-            start_date,end_date=date_range
-            st.info(f"📅 Showing data from **{start_date}** to **{end_date}**")
-
-        mask=(df_entries["timestamp_dt"].dt.date>=start_date)&(df_entries["timestamp_dt"].dt.date<=end_date)
-        filtered=df_entries.loc[mask]
-        chart_type=st.radio("Chart type:",["Bar","Pie"],horizontal=True)
-
-        st.subheader("😊 Mood distribution")
-        if not filtered.empty:
-            mood_count=filtered.groupby("mood").size().reset_index(name="count")
-            if chart_type=="Bar":
-                st.bar_chart(mood_count.set_index("mood"),height=200)
-            else:
-                fig,ax=plt.subplots(figsize=(3,3))
-                ax.pie(mood_count["count"],labels=mood_count["mood"],
-                       autopct="%1.0f%%",startangle=90); ax.axis("equal")
-                st.pyplot(fig)
-        else:
-            st.write("No mood data for this period.")
-
-        st.subheader("🙌 Most thanked people")
-        people=pd.concat([filtered["thank1_who"],filtered["thank2_who"],filtered["thank3_who"]]).dropna()
-        if not people.empty:
-            top_people=people.value_counts().head(10)
-            if chart_type=="Bar":
-                st.bar_chart(top_people,height=200)
-            else:
-                fig,ax=plt.subplots(figsize=(3,3))
-                ax.pie(top_people.values,labels=top_people.index,
-                       autopct="%1.0f%%",startangle=90); ax.axis("equal")
-                st.pyplot(fig)
-        else:
-            st.write("No people data for this period.")
-
-        st.subheader("💭 Total thoughts added")
-        st.write(f"🧠 You have written {len(df_thoughts)} thoughts in total!")
-
-    if st.button("🏠 Back to Home"): goto("stats")
-
-# ============================================================
-#  THANKFUL HISTORY PAGE
-# ============================================================
-elif st.session_state.page == "thankful_history":
+# ------------------------------------------------------------
+# 🙏 Thankful History (table)
+# ------------------------------------------------------------
+elif menu == "🙏 Thankful History":
     st.title("🙏 Thankful History")
 
     if df_entries.empty:
-        st.info("No thankful entries yet 🌱 Write your first gratitude journal.")
+        st.info("No thankful entries yet 🌱")
     else:
-        st.subheader("💖 Gratitude Records")
-
-        df_thanks = df_entries.copy()
-        df_thanks["Date"] = pd.to_datetime(df_thanks["timestamp"], errors="coerce").dt.date
-
-        # Keep only relevant columns
-        df_thanks = df_thanks[[
-            "Date", "mood",
-            "thank1_who", "thank1_for",
-            "thank2_who", "thank2_for",
-            "thank3_who", "thank3_for"
+        df = df_entries.copy()
+        df["Date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
+        df = df[[
+            "Date","mood",
+            "thank1_who","thank1_for",
+            "thank2_who","thank2_for",
+            "thank3_who","thank3_for"
         ]].sort_values("Date", ascending=False)
 
-        # --- Filters ---
-        col1, col2 = st.columns([1, 2])
-        with col1:
-            date_filter = st.date_input("📅 Filter by date", value=None)
-        with col2:
-            keyword = st.text_input("🔍 Search name or keyword", placeholder="e.g. Mum, colleague, kindness...")
+        c1, c2 = st.columns([1,2])
+        with c1:
+            d = st.date_input("📅 Filter by date", value=None, key="thk_date")
+        with c2:
+            k = st.text_input("🔍 Search name or keyword", key="thk_kw")
 
-        df_view = df_thanks.copy()
-        if date_filter:
-            df_view = df_view[df_view["Date"] == date_filter]
-        if keyword:
-            mask = (
-                df_view["thank1_who"].astype(str).str.contains(keyword, case=False, na=False) |
-                df_view["thank1_for"].astype(str).str.contains(keyword, case=False, na=False) |
-                df_view["thank2_who"].astype(str).str.contains(keyword, case=False, na=False) |
-                df_view["thank2_for"].astype(str).str.contains(keyword, case=False, na=False) |
-                df_view["thank3_who"].astype(str).str.contains(keyword, case=False, na=False) |
-                df_view["thank3_for"].astype(str).str.contains(keyword, case=False, na=False)
-            )
-            df_view = df_view[mask]
+        view = df.copy()
+        if d: view = view[view["Date"] == d]
+        if k:
+            mask = pd.Series(False, index=view.index)
+            for col in ["thank1_who","thank1_for","thank2_who","thank2_for","thank3_who","thank3_for"]:
+                mask = mask | view[col].astype(str).str.contains(k, case=False, na=False)
+            view = view[mask]
 
-        if df_view.empty:
-            st.info("No thankful records match your filters.")
-        else:
-            st.dataframe(
-                df_view,
-                use_container_width=True,
-                height=600,
-            )
-            st.caption("🕒 Showing all gratitude entries (newest first).")
+        st.dataframe(view, use_container_width=True, height=600)
 
-        # --- Optional download ---
-        csv_data = df_view.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            label="📤 Download Thankful CSV",
-            data=csv_data,
-            file_name="thankful_history.csv",
-            mime="text/csv",
-        )
+        csv = view.to_csv(index=False).encode("utf-8")
+        st.download_button("📤 Download Thankful CSV", data=csv, file_name="thankful_history.csv", mime="text/csv")
 
-    if st.button("🏠 Back to Home"):
-        goto("stats")
-
-# ============================================================
-#  HISTORY PAGE (Journal only, table view)
-# ============================================================
-elif st.session_state.page == "history":
+# ------------------------------------------------------------
+# 📜 Journal History (table)
+# ------------------------------------------------------------
+elif menu == "📜 Journal History":
     st.title("📜 Journal History")
 
     if df_entries.empty:
-        st.info("No journal entries yet 🌱 Write your first one in the Journal page.")
+        st.info("No journal entries yet 🌱")
     else:
-        st.subheader("📔 My Journal Records")
+        df = df_entries.copy()
+        df["Date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
+        if "journal" not in df.columns:
+            df["journal"] = ""
+        df = df[["Date","mood","journal"]].sort_values("Date", ascending=False)
 
-        df_journal = df_entries.copy()
-        df_journal["Date"] = pd.to_datetime(df_journal["timestamp"], errors="coerce").dt.date
+        c1, c2 = st.columns([1,2])
+        with c1:
+            d = st.date_input("📅 Filter by date", value=None, key="jh_date")
+        with c2:
+            k = st.text_input("🔍 Search keyword in journal", key="jh_kw")
 
-        # Ensure journal column exists
-        if "journal" not in df_journal.columns:
-            df_journal["journal"] = ""
+        view = df.copy()
+        if d: view = view[view["Date"] == d]
+        if k:
+            view = view[view["journal"].str.contains(k, case=False, na=False)]
 
-        # Keep key columns only
-        df_journal = df_journal[["Date", "mood", "journal"]].sort_values("Date", ascending=False)
+        st.dataframe(view, use_container_width=True, height=600)
 
-        # --- Filters ---
-        col1, col2 = st.columns([1, 2])
-        with col1:
-            date_filter = st.date_input("📅 Filter by date", value=None)
-        with col2:
-            keyword = st.text_input("🔍 Search keyword in journal", placeholder="e.g. happy, grateful, family...")
-
-        df_view = df_journal.copy()
-        if date_filter:
-            df_view = df_view[df_view["Date"] == date_filter]
-        if keyword:
-            df_view = df_view[df_view["journal"].str.contains(keyword, case=False, na=False)]
-
-        if df_view.empty:
-            st.info("No journal entries match your filters.")
-        else:
-            st.dataframe(
-                df_view,
-                use_container_width=True,
-                height=600,
-            )
-
-            st.caption("🕒 Showing your daily journals in table view (newest first).")
-
-        # --- Optional download ---
-        csv_data = df_view.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            label="📤 Download Journal CSV",
-            data=csv_data,
-            file_name="journal_history.csv",
-            mime="text/csv",
-        )
-
-    if st.button("🏠 Back to Home"):
-        goto("stats")
+        csv = view.to_csv(index=False).encode("utf-8")
+        st.download_button("📤 Download Journal CSV", data=csv, file_name="journal_history.csv", mime="text/csv")

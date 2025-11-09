@@ -1,5 +1,4 @@
 streamlit
-gspread
-google-auth
 pandas
 matplotlib
+supabase
